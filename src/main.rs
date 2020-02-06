@@ -143,7 +143,6 @@ fn main() {
         // Poll for and process events
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
-            println!("{:?}", event);
             match event {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     window.set_should_close(true);
@@ -154,12 +153,8 @@ fn main() {
                             (window.get_cursor_pos().0 as f32).to_range(0.0, 500.0, -1.0, 1.0),
                             (window.get_cursor_pos().1 as f32).to_range(0.0, 500.0, 1.0, -1.0)),
                         size: (0.5, 0.5),
-                        color: (
-                            rng.gen_range(0.0, 1.0),
-                            rng.gen_range(0.0, 1.0),
-                            rng.gen_range(0.0, 1.0),
-                            1.0,
-                        ),
+
+                        texture_id: rng.gen_range(0u32, 2)
                     });
                 }
                 _ => {}
@@ -170,6 +165,9 @@ fn main() {
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT));
 
         program.use_program();
+        program.set_uniform1iv("textures", &[0, 1]);
+        gl_call!(gl::BindTextureUnit(0, id_cobble));
+        gl_call!(gl::BindTextureUnit(1, id_tnt));
 
         renderer.begin_batch();
 

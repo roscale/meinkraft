@@ -139,6 +139,12 @@ impl ShaderProgram {
         self
     }
 
+    pub fn set_uniform1iv(&self, name: &str, vec: &[i32]) -> &Self {
+        let location = self.get_uniform_location(name);
+        gl_call!(gl::Uniform1iv(location, vec.len() as i32, vec.as_ptr()));
+        self
+    }
+
     pub fn from_shaders(vertex: ShaderPart, fragment: ShaderPart) -> Result<ShaderProgram, String> {
         let program_id = gl_call!(gl::CreateProgram());
 

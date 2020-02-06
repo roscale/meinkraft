@@ -9,7 +9,8 @@ pub const NULLPTR: *mut c_void = 0 as *mut c_void;
 pub struct QuadProps {
     pub position: (f32, f32),
     pub size: (f32, f32),
-    pub color: (f32, f32, f32, f32),
+    pub texture_id: u32,
+//    pub texture_coords: (f32, f32)
 }
 
 pub struct Renderer2D {
@@ -52,14 +53,14 @@ impl Renderer2D {
         gl_call!(gl::VertexArrayAttribFormat(vao, 0, 2, gl::FLOAT, gl::FALSE, 0));
 
         gl_call!(gl::VertexArrayAttribBinding(vao, 0, binding_index_pos));
-        gl_call!(gl::VertexArrayVertexBuffer(vao, binding_index_pos, vbo, 0, (6 * std::mem::size_of::<f32>()) as i32));
+        gl_call!(gl::VertexArrayVertexBuffer(vao, binding_index_pos, vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
 
 
         gl_call!(gl::EnableVertexArrayAttrib(vao, 1));
-        gl_call!(gl::VertexArrayAttribFormat(vao, 1, 4, gl::FLOAT, gl::FALSE, (2 * std::mem::size_of::<f32>()) as u32));
+        gl_call!(gl::VertexArrayAttribFormat(vao, 1, 3, gl::FLOAT, gl::FALSE, (2 * std::mem::size_of::<f32>()) as u32));
 
         gl_call!(gl::VertexArrayAttribBinding(vao, 1, binding_index_color));
-        gl_call!(gl::VertexArrayVertexBuffer(vao, binding_index_color, vbo, 0, (6 * std::mem::size_of::<f32>() as isize) as i32));
+        gl_call!(gl::VertexArrayVertexBuffer(vao, binding_index_color, vbo, 0, (5 * std::mem::size_of::<f32>() as isize) as i32));
 
         Renderer2D {
             vertices,
@@ -73,14 +74,15 @@ impl Renderer2D {
     }
 
     pub fn submit_quad(&mut self, quad_props: QuadProps) {
-        let QuadProps { position: (x, y), size: (w, h), color: (r, g, b, a) } = quad_props;
+        let QuadProps { position: (x, y), size: (w, h), texture_id } = quad_props;
 
-        self.vertices.extend_from_slice(&[x, y, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x + w, y, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x + w, y + h, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x + w, y + h, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x, y + h, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x, y, r, g, b, a]);
+        let texture_id = texture_id as f32;
+        self.vertices.extend_from_slice(&[x, y, texture_id, 0.0, 0.0]);
+        self.vertices.extend_from_slice(&[x + w, y, texture_id, 1.0, 0.0]);
+        self.vertices.extend_from_slice(&[x + w, y + h, texture_id, 1.0, 1.0]);
+        self.vertices.extend_from_slice(&[x + w, y + h, texture_id, 1.0, 1.0]);
+        self.vertices.extend_from_slice(&[x, y + h, texture_id, 0.0, 1.0]);
+        self.vertices.extend_from_slice(&[x, y, texture_id, 0.0, 0.0]);
     }
 
     pub fn end_batch(&mut self) {
