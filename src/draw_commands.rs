@@ -26,7 +26,7 @@ pub struct Renderer2D {
 
 impl Default for Renderer2D {
     fn default() -> Self {
-        Renderer2D::new(100_000)
+        Renderer2D::new(100_000_0)
     }
 }
 
@@ -97,7 +97,7 @@ impl Renderer2D {
         }.push(quad_props);
     }
 
-    pub fn end_batch(&mut self, program: &ShaderProgram) {
+    pub fn end_batch(&mut self, program: &mut ShaderProgram) {
         let mut draw_calls = 0;
 
         // TODO: Handle quads without textures
@@ -119,7 +119,6 @@ impl Renderer2D {
             self.vertices.clear();
 
             for (tex_unit, &texture_id) in chunk.enumerate() {
-//                dbg!(unit, &texture_id);
                 for quad in &self.quads[&texture_id] {
                     let QuadProps {
                         position: (x, y, z),
@@ -141,6 +140,7 @@ impl Renderer2D {
                 tex_units.push(tex_unit as i32);
             };
 
+            program.use_program();
             program.set_uniform1iv("textures", tex_units.as_slice());
 
             gl_call!(gl::NamedBufferSubData(self.vbo,
@@ -152,6 +152,6 @@ impl Renderer2D {
             gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, (self.vertices.len() / 6) as i32));
             draw_calls += 1;
         }
-        println!("Total draw calls: {}", draw_calls);
+//        println!("Total draw calls: {}", draw_calls);
     }
 }
