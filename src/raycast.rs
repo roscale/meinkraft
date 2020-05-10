@@ -8,8 +8,8 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
               origin: &Vec3, direction: &Vec3, distance: f32) -> Option<(T, IVec3)> {
 
     let mut t = 0.0f32;
-    let mut i = floor(&origin).map(|x| x as i32);
-    let step = direction.map(|x| if x > 0f32 { 1 } else { -1 });
+    let mut i: IVec3 = floor(&origin).map(|x| x as i32);
+    let step: IVec3 = direction.map(|x| if x > 0f32 { 1i32 } else { -1i32 });
     let t_delta = direction.map(|x| (1.0 / x).abs());
     let dist = origin.zip_zip_map(&i, &step,|p, i, s| {
         if s > 0 {
@@ -60,7 +60,7 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
                 stepped_index = 2;
             }
         } else {
-            if (t_max.y < t_max.z) {
+            if t_max.y < t_max.z {
                 i.y += step.y;
                 t = t_max.y;
                 t_max.y += t_delta.y;

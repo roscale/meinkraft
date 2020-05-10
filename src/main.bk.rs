@@ -182,7 +182,7 @@ fn main() {
                         texture_id: rng.gen_range(1u32, 11),
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
                     });
-                    dbg!(i);
+                    // dbg!(i);
                     i -= 0.001;
                 }
                 _ => {}

@@ -6,6 +6,7 @@ pub mod texture;
 pub mod ecs;
 pub mod shapes;
 pub mod util;
+pub mod chunk_manager;
 pub mod chunk;
 pub mod raycast;
 
@@ -17,7 +18,7 @@ use std::ffi::CString;
 use crate::shader_compilation::{ShaderPart, ShaderProgram};
 use crate::ecs::components::Position;
 use glfw::WindowEvent::Pos;
-use nalgebra_glm::{Vec3, vec3, Mat4, Vec2, vec2, pi, IVec3};
+use nalgebra_glm::{Vec3, vec3, Mat4, Vec2, vec2, pi, IVec3, proj};
 use nalgebra::{Vector3, Matrix4, clamp};
 use crate::texture::create_texture;
 use crate::shapes::unit_cube_array;
@@ -27,6 +28,7 @@ use crate::chunk::{Chunk, BlockID};
 use rand::random;
 use image::GenericImageView;
 use glfw::MouseButton::Button1;
+use crate::chunk_manager::ChunkManager;
 
 pub struct InputCache {
     pub last_cursor_pos: Vec2,
@@ -182,23 +184,23 @@ fn main() {
     // c.set(BlockID::COBBLESTONE, 0, 0, 0);
     // c.set(BlockID::COBBLESTONE, 1, 0, 0);
     // c.regen_vbo();
-    let mut c = Chunk::empty();
+    // let mut c = Chunk::empty();
+    //
+    // for y in 0..4 {
+    //     for x in 0..16 {
+    //         for z in 0..16 {
+    //             c.set(BlockID::COBBLESTONE, x, y, z);
+    //         }
+    //     }
+    // }
 
-    for y in 0..4 {
-        for x in 0..16 {
-            for z in 0..16 {
-                c.set(BlockID::COBBLESTONE, x, y, z);
-            }
-        }
-    }
+    let mut chunk_manager = ChunkManager::new();
+    chunk_manager.preload_some_chunks();
+    // chunk_manager.empty_99();
+    // chunk_manager.set(BlockID::COBBLESTONE, 1, 1, 1);
+    // chunk_manager.set(BlockID::COBBLESTONE, -16, -16, -16);
 
-    c.regen_vbo(&uv_map);
-    gl_call!(gl::BindVertexArray(c.vao));
-
-
-
-
-
+    // c.regen_vbo(&uv_map);
 
     let mut input_cache = InputCache::default();
     let mut past_cursor_pos = (0.0, 0.0);
@@ -222,18 +224,18 @@ fn main() {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     window.set_should_close(true);
                 }
-                glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
-                    for _ in 0..16*16*8 {
-                        c.set(BlockID::AIR,
-                              (random::<u8>() % 16) as usize,
-                              (random::<u8>() % 16) as usize,
-                              (random::<u8>() % 16) as usize);
-                    }
-
-                    c.regen_vbo(&uv_map);
-                    // exit(0);
-
-                }
+                // glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
+                //     for _ in 0..16*16*8 {
+                //         c.set(BlockID::AIR,
+                //               (random::<u8>() % 16) as usize,
+                //               (random::<u8>() % 16) as usize,
+                //               (random::<u8>() % 16) as usize);
+                //     }
+                //
+                //     c.regen_vbo(&uv_map);
+                //     // exit(0);
+                //
+                // }
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
                 }
@@ -241,35 +243,22 @@ fn main() {
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
                     let fw = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
-                        if x < 0 || y < 0 || z < 0 || x >= 16 || y >= 16 || z >= 16 {
-                            return None;
-                        }
-                        let block = c.get(x as usize, y as usize, z as usize);
-                        if block == BlockID::AIR {
-                            return None
-                        }
-                        Some((x as usize, y as usize, z as usize))
+                        chunk_manager.get(x, y, z)
+                            .filter(|&block| block != BlockID::AIR)
+                            .and_then(|_| Some((x, y, z)))
                     };
 
-                    let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 4.0);
+                    let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 400.0);
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            c.set(BlockID::AIR, x, y, z);
-                            c.regen_vbo(&uv_map);
+                            // chunk_manager.set(BlockID::AIR, x, y, z);
                         } else if button == MouseButton::Button2 {
-                            let near = IVec3::new(x as i32, y as i32, z as i32) + normal;
-                            let (x, y, z) = (near.x, near.y, near.z);
-                            if x < 0 || y < 0 || z < 0 || x >= 16 || y >= 16 || z >= 16 {
-                                continue;
-                            }
-
-                            c.set(BlockID::DIRT, near.x as usize, near.y as usize, near.z as usize);
-                            c.regen_vbo(&uv_map);
+                            let near = IVec3::new(x, y, z) + normal;
+                            // chunk_manager.set(BlockID::DIRT, near.x, near.y, near.z);
                         }
 
-
-                        println!("{} {} {}", x, y, z);
-                        dbg!(fw);
+                        println!("HIT {} {} {}", x, y, z);
+                        // dbg!(fw);
                     } else {
                         println!("NO HIT");
                     }
@@ -279,7 +268,7 @@ fn main() {
             }
         }
 
-        let multiplier = 0.01f32;
+        let multiplier = 0.2f32;
 
         if input_cache.is_key_pressed(Key::W) {
             camera_position += forward(&camera_rotation).scale(multiplier);
@@ -312,35 +301,19 @@ fn main() {
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
         let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
 
-        let model_matrix = {
-            let translate_matrix = Matrix4::new_translation(&vec3(0.0f32, 0.0, 0.0));
-
-            let rotate_matrix = Matrix4::from_euler_angles(
-                0.0f32,
-                0.0,
-                0.0,
-            );
-
-            let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
-            translate_matrix * rotate_matrix * scale_matrix
-        };
-
+        chunk_manager.rebuild_dirty_chunks(&uv_map);
 
 
 
         program.use_program();
-        program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
         program.set_uniform_matrix4fv("view", view_matrix.as_ptr());
         program.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
         program.set_uniform1i("tex", 0);
 
-
-
-
         gl_call!(gl::ClearColor(0.74, 0.84, 1.0, 1.0));
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 
-        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, c.vertices_drawn as i32));
+        chunk_manager.render_loaded_chunks(&mut program);
 
         window.swap_buffers();
     }

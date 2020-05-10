@@ -28,9 +28,9 @@ impl Distribution<BlockID> for Standard {
     }
 }
 
-const CHUNK_SIZE: usize = 16;
-const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
-const CUBE_SIZE: usize = 180;
+const CHUNK_SIZE: u32 = 16;
+const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+const CUBE_SIZE: u32 = 180;
 
 fn create_vao_vbo() -> (u32, u32) {
     let mut vao = 0;
@@ -49,7 +49,7 @@ fn create_vao_vbo() -> (u32, u32) {
     let mut vbo = 0;
     gl_call!(gl::CreateBuffers(1, &mut vbo));
     gl_call!(gl::NamedBufferData(vbo,
-            (180 * std::mem::size_of::<f32>() * CHUNK_VOLUME) as isize,
+            (180 * std::mem::size_of::<f32>() * CHUNK_VOLUME as usize) as isize,
             null(),
             gl::DYNAMIC_DRAW));
 
@@ -58,10 +58,11 @@ fn create_vao_vbo() -> (u32, u32) {
 }
 
 pub struct Chunk {
-    blocks: [BlockID; CHUNK_VOLUME],
+    blocks: [BlockID; CHUNK_VOLUME as usize],
     pub vao: u32,
     vbo: u32,
-    pub vertices_drawn: u32
+    pub vertices_drawn: u32,
+    pub dirty: bool
 }
 
 impl Chunk {
@@ -69,55 +70,57 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Chunk {
-            blocks: [BlockID::AIR; CHUNK_VOLUME],
+            blocks: [BlockID::AIR; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
+            dirty: false,
         }
     }
 
     pub fn full_of_block(block: BlockID) -> Chunk {
         let (vao, vbo) = create_vao_vbo();
 
-        let c = Chunk {
-            blocks: [block; CHUNK_VOLUME],
+        Chunk {
+            blocks: [block; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
-        };
-        c
+            dirty: true,
+        }
     }
 
     pub fn random() -> Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         let mut c = Chunk {
-            blocks: [BlockID::AIR; CHUNK_VOLUME],
+            blocks: [BlockID::AIR; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
+            dirty: true
         };
 
         for i in 0..c.blocks.len() {
             c.blocks[i] = random::<BlockID>();
         }
-
         c
     }
 
     #[inline]
-    fn coords_to_index(x: usize, y: usize, z: usize) -> usize {
-        y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x
+    fn coords_to_index(x: u32, y: u32, z: u32) -> usize {
+        (y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x) as usize
     }
 
     #[inline]
-    pub fn get(&self, x: usize, y: usize, z: usize) -> BlockID {
+    pub fn get(&self, x: u32, y: u32, z: u32) -> BlockID {
         self.blocks[Chunk::coords_to_index(x, y, z)]
     }
 
     #[inline]
-    pub fn set(&mut self, block: BlockID, x: usize, y: usize, z: usize) {
-        self.blocks[Chunk::coords_to_index(x, y, z)] = block
+    pub fn set(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
+        self.blocks[Chunk::coords_to_index(x, y, z)] = block;
+        self.dirty = true;
     }
 
     pub fn regen_vbo(&mut self, uv_map: &HashMap<BlockID, ((f32, f32), (f32, f32))>) {
@@ -130,9 +133,9 @@ impl Chunk {
                     if block != BlockID::AIR {
                         let (uv_bl, uv_tr) = uv_map.get(&block).unwrap().clone();
 
-                        let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr);
+                        let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, true, true, true, true, true, true);
                         gl_call!(gl::NamedBufferSubData(self.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
-                        self.vertices_drawn += 36;
+                        self.vertices_drawn += cube_array.len() as u32 / 5;
 
                         // unsafe { copy_nonoverlapping(cube_array.as_ptr(), self.vbo_data.as_mut_ptr().offset(i as isize), cube_array.len()) }
                         i += cube_array.len();
@@ -140,6 +143,7 @@ impl Chunk {
                 }
             }
         }
+        self.dirty = false;
 
         // gl_call!(gl::NamedBufferSubData(self.vbo, 0, (self.vbo_data.len() * std::mem::size_of::<f32>()) as isize, self.vbo_data.as_ptr() as *mut c_void));
     }

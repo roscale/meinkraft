@@ -28,65 +28,43 @@ pub fn unit_cube_array(x: f32, y: f32, z: f32,
     }
     if left {
         array.extend_from_slice(&[
-            1.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-            0.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-            1.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            0.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
+            0.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
+            0.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
+            0.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
+            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
         ]);
     }
     if right {
         array.extend_from_slice(&[
-            1.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-            0.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-            1.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            1.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
+            1.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
+            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
+            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
+            1.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
+            1.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
         ]);
     }
-
-    // positions
-    [
-        if x == 5.0 { 0.01 } else {  },
-
-        // front
-
-
-        // back
-
-
-        // left
-         0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-         0.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
-         0.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-         0.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-         0.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-         0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-
-        // right
-        1.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
-        1.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-        1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-        1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-        1.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
-        1.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
-
-        // down
-         0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-         1.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-         1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-         1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-         0.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
-         0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-
-        // up
-         0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
-         1.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
-         1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-         1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-         0.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-         0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
-    ]
+    if up {
+        array.extend_from_slice(&[
+            0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
+            1.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
+            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
+            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
+            0.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
+            0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
+        ]);
+    }
+    if down {
+        array.extend_from_slice(&[
+            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            1.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
+            1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
+            1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
+            0.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
+            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+        ]);
+    }
+    array
 }
