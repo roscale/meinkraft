@@ -7,8 +7,9 @@ pub mod ecs;
 pub mod shapes;
 pub mod util;
 pub mod chunk;
+pub mod raycast;
 
-use glfw::{WindowHint, OpenGlProfileHint, Context, Key, Action, CursorMode, Cursor};
+use glfw::{WindowHint, OpenGlProfileHint, Context, Key, Action, CursorMode, Cursor, MouseButton};
 use glfw::ffi::glfwSwapInterval;
 use std::os::raw::c_void;
 use crate::debugging::*;
@@ -16,12 +17,16 @@ use std::ffi::CString;
 use crate::shader_compilation::{ShaderPart, ShaderProgram};
 use crate::ecs::components::Position;
 use glfw::WindowEvent::Pos;
-use nalgebra_glm::{Vec3, vec3, Mat4, Vec2, vec2, pi};
+use nalgebra_glm::{Vec3, vec3, Mat4, Vec2, vec2, pi, IVec3};
 use nalgebra::{Vector3, Matrix4, clamp};
 use crate::texture::create_texture;
 use crate::shapes::unit_cube_array;
 use std::collections::HashMap;
 use crate::util::forward;
+use crate::chunk::{Chunk, BlockID};
+use rand::random;
+use image::GenericImageView;
+use glfw::MouseButton::Button1;
 
 pub struct InputCache {
     pub last_cursor_pos: Vec2,
@@ -67,6 +72,7 @@ fn main() {
     window.set_key_polling(true);
     window.set_cursor_pos_polling(true);
     window.set_raw_mouse_motion(true);
+    window.set_mouse_button_polling(true);
     window.set_cursor_mode(CursorMode::Disabled);
     window.set_cursor_pos(400.0, 400.0);
 
@@ -97,36 +103,97 @@ fn main() {
         &CString::new(include_str!("shaders/diffuse.frag")).unwrap()).unwrap();
     let mut program = ShaderProgram::from_shaders(vert, frag).unwrap();
 
-    let cobblestone = create_texture("blocks/cobblestone.png");
+
+
+    // Generate texture atlas
+    let mut texture_map: HashMap<BlockID, &str> = HashMap::new();
+    texture_map.insert(BlockID::DIRT, "blocks/dirt.png");
+    texture_map.insert(BlockID::COBBLESTONE, "blocks/cobblestone.png");
+    texture_map.insert(BlockID::OBSIDIAN, "blocks/obsidian.png");
+
+    let mut uv_map = HashMap::<BlockID, ((f32, f32), (f32, f32))>::new();
+
+    let mut atlas: u32 = 0;
+    gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
+    gl_call!(gl::TextureParameteri(atlas, gl::TEXTURE_MIN_FILTER, gl::NEAREST_MIPMAP_NEAREST as i32));
+    gl_call!(gl::TextureParameteri(atlas, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32));
+    gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, 1024, 1024));
+
+    let mut x = 0;
+    let mut y = 0;
+
+    for (block, texture_path) in texture_map {
+        let img = image::open(texture_path);
+        let img = match img {
+            Ok(img) => img.flipv(),
+            Err(err) => panic!("Filename: {}, error: {}", texture_path, err.to_string())
+        };
+
+        match img.color() {
+            image::RGBA(8) => {},
+            _ => panic!("Texture format not supported")
+        };
+
+        gl_call!(gl::TextureSubImage2D(
+            atlas, 0,
+            x, y, img.width() as i32, img.height() as i32,
+            gl::RGBA, gl::UNSIGNED_BYTE,
+            img.raw_pixels().as_ptr() as *mut c_void));
+
+        uv_map.insert(block, ((x as f32 / 1024.0, y as f32 / 1024.0),
+                              ((x as f32 + 16.0) / 1024.0, (y as f32 + 16.0) / 1024.0)));
+
+        x += 16;
+        if x >= 1024 {
+            x = 0;
+            y += 16;
+        }
+    }
+
     gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 0));
-    gl_call!(gl::BindTexture(gl::TEXTURE_2D, cobblestone));
+    gl_call!(gl::BindTexture(gl::TEXTURE_2D, atlas));
 
-    let cube = unit_cube_array();
+    // let cube = unit_cube_array(0.0, 0.0, 0.0);
+    //
+    // let mut cube_vbo = 0;
+    // gl_call!(gl::CreateBuffers(1, &mut cube_vbo));
+    // gl_call!(gl::NamedBufferData(cube_vbo,
+    //         (cube.len() * std::mem::size_of::<f32>()) as isize,
+    //         cube.as_ptr() as *mut c_void,
+    //         gl::STATIC_DRAW));
+    //
+    // let mut cube_vao = 0;
+    // gl_call!(gl::CreateVertexArrays(1, &mut cube_vao));
+    //
+    // gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 0));
+    // gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 1));
+    //
+    // gl_call!(gl::VertexArrayAttribFormat(cube_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
+    // gl_call!(gl::VertexArrayAttribFormat(cube_vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+    //
+    // gl_call!(gl::VertexArrayAttribBinding(cube_vao, 0, 0));
+    // gl_call!(gl::VertexArrayAttribBinding(cube_vao, 1, 0));
 
-    let mut cube_vbo = 0;
-    gl_call!(gl::CreateBuffers(1, &mut cube_vbo));
-    gl_call!(gl::NamedBufferData(cube_vbo,
-            (cube.len() * std::mem::size_of::<f32>()) as isize,
-            cube.as_ptr() as *mut c_void,
-            gl::STATIC_DRAW));
-
-    let mut cube_vao = 0;
-    gl_call!(gl::CreateVertexArrays(1, &mut cube_vao));
-
-    gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 0));
-    gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 1));
-
-    gl_call!(gl::VertexArrayAttribFormat(cube_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
-    gl_call!(gl::VertexArrayAttribFormat(cube_vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
-
-    gl_call!(gl::VertexArrayAttribBinding(cube_vao, 0, 0));
-    gl_call!(gl::VertexArrayAttribBinding(cube_vao, 1, 0));
 
 
+    // gl_call!(gl::VertexArrayVertexBuffer(cube_vao, 0, cube_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
 
-    gl_call!(gl::VertexArrayVertexBuffer(cube_vao, 0, cube_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
+    // let mut c = Chunk::empty();
+    // c.set(BlockID::COBBLESTONE, 0, 0, 0);
+    // c.set(BlockID::COBBLESTONE, 1, 0, 0);
+    // c.regen_vbo();
+    let mut c = Chunk::empty();
 
-    gl_call!(gl::BindVertexArray(cube_vao));
+    for y in 0..4 {
+        for x in 0..16 {
+            for z in 0..16 {
+                c.set(BlockID::COBBLESTONE, x, y, z);
+            }
+        }
+    }
+
+    c.regen_vbo(&uv_map);
+    gl_call!(gl::BindVertexArray(c.vao));
 
 
 
@@ -155,47 +222,98 @@ fn main() {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     window.set_should_close(true);
                 }
+                glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
+                    for _ in 0..16*16*8 {
+                        c.set(BlockID::AIR,
+                              (random::<u8>() % 16) as usize,
+                              (random::<u8>() % 16) as usize,
+                              (random::<u8>() % 16) as usize);
+                    }
+
+                    c.regen_vbo(&uv_map);
+                    // exit(0);
+
+                }
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
                 }
+
+                glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
+                    let fw = forward(&camera_rotation);
+                    let get_voxel = |x: i32, y: i32, z: i32| {
+                        if x < 0 || y < 0 || z < 0 || x >= 16 || y >= 16 || z >= 16 {
+                            return None;
+                        }
+                        let block = c.get(x as usize, y as usize, z as usize);
+                        if block == BlockID::AIR {
+                            return None
+                        }
+                        Some((x as usize, y as usize, z as usize))
+                    };
+
+                    let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 4.0);
+                    if let Some(((x, y, z), normal)) = hit {
+                        if button == MouseButton::Button1 {
+                            c.set(BlockID::AIR, x, y, z);
+                            c.regen_vbo(&uv_map);
+                        } else if button == MouseButton::Button2 {
+                            let near = IVec3::new(x as i32, y as i32, z as i32) + normal;
+                            let (x, y, z) = (near.x, near.y, near.z);
+                            if x < 0 || y < 0 || z < 0 || x >= 16 || y >= 16 || z >= 16 {
+                                continue;
+                            }
+
+                            c.set(BlockID::DIRT, near.x as usize, near.y as usize, near.z as usize);
+                            c.regen_vbo(&uv_map);
+                        }
+
+
+                        println!("{} {} {}", x, y, z);
+                        dbg!(fw);
+                    } else {
+                        println!("NO HIT");
+                    }
+                }
+
                 _ => {}
             }
         }
 
+        let multiplier = 0.01f32;
+
         if input_cache.is_key_pressed(Key::W) {
-            camera_position += forward(&camera_rotation).scale(0.03f32);
+            camera_position += forward(&camera_rotation).scale(multiplier);
         }
 
         if input_cache.is_key_pressed(Key::S) {
-            camera_position -= forward(&camera_rotation).scale(0.03f32);
+            camera_position -= forward(&camera_rotation).scale(multiplier);
         }
 
         if input_cache.is_key_pressed(Key::A) {
-            camera_position -= forward(&camera_rotation).cross(&Vector3::y()).normalize().scale(0.03f32);
+            camera_position -= forward(&camera_rotation).cross(&Vector3::y()).normalize().scale(multiplier);
         }
 
         if input_cache.is_key_pressed(Key::D) {
-            camera_position += forward(&camera_rotation).cross(&Vector3::y()).normalize().scale(0.03f32);
+            camera_position += forward(&camera_rotation).cross(&Vector3::y()).normalize().scale(multiplier);
         }
 
         if input_cache.is_key_pressed(Key::Q) {
-            camera_position.y += 0.03;
-            println!("up");
+            camera_position.y += multiplier;
         }
 
         if input_cache.is_key_pressed(Key::Z) {
-            camera_position.y -= 0.03;
+            camera_position.y -= multiplier;
         }
 
-        dbg!(camera_position);
-        dbg!(camera_rotation);
+        // dbg!(camera_position);
+        // dbg!(camera_rotation);
         let direction = forward(&camera_rotation);
 
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
         let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
 
         let model_matrix = {
-            let translate_matrix = Matrix4::new_translation(&vec3(5.0f32, 0.0, 0.0));
+            let translate_matrix = Matrix4::new_translation(&vec3(0.0f32, 0.0, 0.0));
 
             let rotate_matrix = Matrix4::from_euler_angles(
                 0.0f32,
@@ -222,7 +340,7 @@ fn main() {
         gl_call!(gl::ClearColor(0.74, 0.84, 1.0, 1.0));
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 
-        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36));
+        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, c.vertices_drawn as i32));
 
         window.swap_buffers();
     }
