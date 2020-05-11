@@ -1,6 +1,5 @@
 use crate::debugging::*;
 use std::ptr::null;
-use crate::shapes::unit_cube_array;
 use std::ptr::copy_nonoverlapping;
 use std::os::raw::c_void;
 use std::collections::{HashMap, HashSet};
@@ -124,13 +123,13 @@ impl Chunk {
         (y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x) as usize
     }
 
-    #[inline]
-    pub fn get(&self, x: u32, y: u32, z: u32) -> BlockID {
+    // #[inline]
+    pub fn get_block(&self, x: u32, y: u32, z: u32) -> BlockID {
         self.blocks[Chunk::coords_to_index(x, y, z)]
     }
 
-    #[inline]
-    pub fn set(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
+    // #[inline]
+    pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
         self.blocks[Chunk::coords_to_index(x, y, z)] = block;
         self.dirty = true;
         if x == 0 {

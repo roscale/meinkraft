@@ -6,7 +6,7 @@ use nalgebra::{Vector3, Matrix4, clamp};
 use std::ops::Mul;
 use std::borrow::Borrow;
 use std::hash::Hash;
-use crate::shapes::unit_cube_array;
+use crate::shapes::{write_unit_cube_to_ptr};
 use std::os::raw::c_void;
 use std::cell::RefCell;
 use noise::{SuperSimplex, NoiseFn, Point3, Point2};
@@ -43,7 +43,7 @@ impl ChunkManager {
     }
 
     pub fn simplex(&mut self) {
-        let n = 20;
+        let n = 5;
 
         let ss = SuperSimplex::new();
         for y in 0..16 {
@@ -61,10 +61,10 @@ impl ChunkManager {
                 let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
                 let y = ss.get(Point2::from([xf, zf]));
                 let y = (16.0 * (y + 1.0)) as i32;
-                self.set(BlockID::DIRT, x, y, z);
-                self.set(BlockID::DIRT, x, y - 1, z);
-                self.set(BlockID::DIRT, x, y - 2, z);
-                self.set(BlockID::COBBLESTONE, x, y - 3, z);
+                self.set_block(BlockID::DIRT, x, y, z);
+                self.set_block(BlockID::DIRT, x, y - 1, z);
+                self.set_block(BlockID::DIRT, x, y - 2, z);
+                self.set_block(BlockID::COBBLESTONE, x, y - 3, z);
             }
         }
 
@@ -90,21 +90,21 @@ impl ChunkManager {
         (x, y, z)
     }
 
-    pub fn get(&self, x: i32, y: i32, z: i32) -> Option<BlockID> {
+    pub fn get_block(&self, x: i32, y: i32, z: i32) -> Option<BlockID> {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_and_block_coords(x, y, z);
 
         self.loaded_chunks.get((chunk_x, chunk_y, chunk_z).borrow()).and_then(|chunk| {
-            Some(chunk.get(block_x, block_y, block_z))
+            Some(chunk.get_block(block_x, block_y, block_z))
         })
     }
 
-    pub fn set(&mut self, block: BlockID, x: i32, y: i32, z: i32) {
+    pub fn set_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_and_block_coords(x, y, z);
 
         self.loaded_chunks.get_mut((chunk_x, chunk_y, chunk_z).borrow()).map(|chunk| {
-            chunk.set(block, block_x, block_y, block_z)
+            chunk.set_block(block, block_x, block_y, block_z)
         });
     }
 
@@ -141,28 +141,31 @@ impl ChunkManager {
             let mut i = 0;
             let chunk = self.loaded_chunks.get_mut(&coords);
             if let Some(chunk) = chunk {
+                let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(chunk.vbo, gl::WRITE_ONLY)) as *mut f32;
+
                 let sides_vec = active_sides.get(&coords).unwrap();
                 let mut j = 0;
 
                 for y in 0..CHUNK_SIZE {
                     for z in 0..CHUNK_SIZE {
                         for x in 0..CHUNK_SIZE {
-                            let block = chunk.get(x, y, z);
+                            let block = chunk.get_block(x, y, z);
                             if block != BlockID::AIR {
                                 let (uv_bl, uv_tr) = uv_map.get(&block).unwrap().clone();
-
                                 let active_sides = sides_vec[j];
 
-                                let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
-                                gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
-                                chunk.vertices_drawn += cube_array.len() as u32 / 5;
-
-                                i += cube_array.len();
+                                let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(i), x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides) };
+                                // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
+                                // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
+                                chunk.vertices_drawn += copied_vertices;
+                                i += copied_vertices as isize * 5;
                             }
                             j += 1;
                         }
                     }
                 }
+                gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
+
                 chunk.dirty = false;
                 chunk.dirty_neighbours.clear();
             }
@@ -170,12 +173,12 @@ impl ChunkManager {
     }
 
     pub fn get_active_sides_of_block(&self, x: i32, y: i32, z: i32) -> (bool, bool, bool, bool, bool, bool) {
-        let right = self.get(x + 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
-        let left = self.get(x - 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
-        let top = self.get(x, y + 1, z).filter(|&b| b != BlockID::AIR).is_none();
-        let bottom = self.get(x, y - 1, z).filter(|&b| b != BlockID::AIR).is_none();
-        let front = self.get(x, y, z + 1).filter(|&b| b != BlockID::AIR).is_none();
-        let back = self.get(x, y, z - 1).filter(|&b| b != BlockID::AIR).is_none();
+        let right = self.get_block(x + 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
+        let left = self.get_block(x - 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
+        let top = self.get_block(x, y + 1, z).filter(|&b| b != BlockID::AIR).is_none();
+        let bottom = self.get_block(x, y - 1, z).filter(|&b| b != BlockID::AIR).is_none();
+        let front = self.get_block(x, y, z + 1).filter(|&b| b != BlockID::AIR).is_none();
+        let back = self.get_block(x, y, z - 1).filter(|&b| b != BlockID::AIR).is_none();
         (right, left, top, bottom, front, back)
     }
 

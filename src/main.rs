@@ -21,7 +21,6 @@ use glfw::WindowEvent::Pos;
 use nalgebra_glm::{Vec3, vec3, Mat4, Vec2, vec2, pi, IVec3, proj};
 use nalgebra::{Vector3, Matrix4, clamp};
 use crate::texture::create_texture;
-use crate::shapes::unit_cube_array;
 use std::collections::HashMap;
 use crate::util::forward;
 use crate::chunk::{Chunk, BlockID};
@@ -195,7 +194,7 @@ fn main() {
     // }
 
     let mut chunk_manager = ChunkManager::new();
-    chunk_manager.preload_some_chunks();
+    // chunk_manager.preload_some_chunks();
     chunk_manager.simplex();
     // chunk_manager.empty_99();
     // chunk_manager.set(BlockID::COBBLESTONE, 1, 1, 1);
@@ -244,7 +243,7 @@ fn main() {
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
                     let fw = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
-                        chunk_manager.get(x, y, z)
+                        chunk_manager.get_block(x, y, z)
                             .filter(|&block| block != BlockID::AIR)
                             .and_then(|_| Some((x, y, z)))
                     };
@@ -252,10 +251,10 @@ fn main() {
                     let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 400.0);
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            chunk_manager.set(BlockID::AIR, x, y, z);
+                            chunk_manager.set_block(BlockID::AIR, x, y, z);
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-                            chunk_manager.set(BlockID::DIRT, near.x, near.y, near.z);
+                            chunk_manager.set_block(BlockID::DIRT, near.x, near.y, near.z);
                         }
 
                         println!("HIT {} {} {}", x, y, z);
