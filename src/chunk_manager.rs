@@ -11,6 +11,7 @@ use std::os::raw::c_void;
 use std::cell::RefCell;
 use noise::{SuperSimplex, NoiseFn, Point3, Point2};
 use crate::block_texture_sides::{BlockFaces, get_uv_every_side};
+use rand::random;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -55,8 +56,6 @@ impl ChunkManager {
             }
         }
 
-
-
         for x in -16 * n..16 * n {
             for z in -16 * n..16 * n {
                 let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
@@ -66,6 +65,37 @@ impl ChunkManager {
                 self.set_block(BlockID::Dirt, x, y - 1, z);
                 self.set_block(BlockID::Dirt, x, y - 2, z);
                 self.set_block(BlockID::Cobblestone, x, y - 3, z);
+
+                if random::<u32>() % 100 < 1 {
+                    let h = 5;
+                    for i in y + 1..y + 1 + h {
+                        self.set_block(BlockID::OakLog, x, i, z);
+                    }
+
+                    for yy in y + h - 2 ..= y + h - 1 {
+                        for xx in x - 2..=x + 2 {
+                            for zz in z - 2..=z + 2 {
+                                if xx != x || zz != z {
+                                    self.set_block(BlockID::OakLeaves, xx, yy, zz);
+                                }
+                            }
+                        }
+                    }
+
+                    for xx in x - 1..=x + 1 {
+                        for zz in z - 1..=z + 1 {
+                            if xx != x || zz != z {
+                                self.set_block(BlockID::OakLeaves, xx, y + h, zz);
+                            }
+                        }
+                    }
+
+                    self.set_block(BlockID::OakLeaves, x, y + h + 1, z);
+                    self.set_block(BlockID::OakLeaves, x + 1, y + h + 1, z);
+                    self.set_block(BlockID::OakLeaves, x - 1, y + h + 1, z);
+                    self.set_block(BlockID::OakLeaves, x, y + h + 1, z + 1);
+                    self.set_block(BlockID::OakLeaves, x, y + h + 1, z - 1);
+                }
             }
         }
 
@@ -176,12 +206,12 @@ impl ChunkManager {
     }
 
     pub fn get_active_sides_of_block(&self, x: i32, y: i32, z: i32) -> (bool, bool, bool, bool, bool, bool) {
-        let right = self.get_block(x + 1, y, z).filter(|&b| b != BlockID::Air).is_none();
-        let left = self.get_block(x - 1, y, z).filter(|&b| b != BlockID::Air).is_none();
-        let top = self.get_block(x, y + 1, z).filter(|&b| b != BlockID::Air).is_none();
-        let bottom = self.get_block(x, y - 1, z).filter(|&b| b != BlockID::Air).is_none();
-        let front = self.get_block(x, y, z + 1).filter(|&b| b != BlockID::Air).is_none();
-        let back = self.get_block(x, y, z - 1).filter(|&b| b != BlockID::Air).is_none();
+        let right = self.get_block(x + 1, y, z).filter(|&b| !b.is_transparent()).is_none();
+        let left = self.get_block(x - 1, y, z).filter(|&b| !b.is_transparent()).is_none();
+        let top = self.get_block(x, y + 1, z).filter(|&b| !b.is_transparent()).is_none();
+        let bottom = self.get_block(x, y - 1, z).filter(|&b| !b.is_transparent()).is_none();
+        let front = self.get_block(x, y, z + 1).filter(|&b| !b.is_transparent()).is_none();
+        let back = self.get_block(x, y, z - 1).filter(|&b| !b.is_transparent()).is_none();
         (right, left, top, bottom, front, back)
     }
 

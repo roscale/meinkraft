@@ -120,6 +120,12 @@ fn main() {
     });
     texture_map.insert(BlockID::Cobblestone, BlockFaces::All("blocks/cobblestone.png"));
     texture_map.insert(BlockID::Obsidian, BlockFaces::All("blocks/obsidian.png"));
+    texture_map.insert(BlockID::OakLog, BlockFaces::Sides {
+        sides: "blocks/oak_log.png",
+        top: "blocks/oak_log_top.png",
+        bottom: "blocks/oak_log_top.png"
+    });
+    texture_map.insert(BlockID::OakLeaves, BlockFaces::All("blocks/oak_leaves_mod.png"));
 
 
     let mut uv_map = HashMap::<BlockID, BlockFaces<(f32, f32, f32, f32)>>::new();

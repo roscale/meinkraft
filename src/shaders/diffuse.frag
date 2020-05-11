@@ -11,5 +11,8 @@ in VertexAttributes {
 
 void main() {
     vec4 diffuse_frag = texture(tex, attrs.texture_coords);
+    if (diffuse_frag.a == 0) {
+        discard;
+    }
     Color = diffuse_frag;
 }
