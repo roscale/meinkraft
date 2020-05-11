@@ -1,10 +1,20 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::chunk::{Chunk, BlockID};
 use nalgebra_glm::{Mat4, vec3};
 use crate::shader_compilation::ShaderProgram;
 use nalgebra::{Vector3, Matrix4, clamp};
 use std::ops::Mul;
 use std::borrow::Borrow;
+use std::hash::Hash;
+use crate::shapes::unit_cube_array;
+use std::os::raw::c_void;
+use std::cell::RefCell;
+
+pub const CHUNK_SIZE: u32 = 16;
+pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+pub const CUBE_SIZE: u32 = 180;
+
+type Sides = (bool, bool, bool, bool, bool, bool);
 
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
@@ -18,29 +28,17 @@ impl ChunkManager {
     }
 
     pub fn preload_some_chunks(&mut self) {
-        for y in -1..=1 {
-            for z in -1..=1 {
-                for x in -1..=1 {
-                    self.loaded_chunks.insert((x, y, z), Chunk::full_of_block(
-                        if (x + y + z) % 2 == 0 {
-                            BlockID::COBBLESTONE
-                        } else {
-                            BlockID::DIRT
-                        }
-                    ));
+        for y in 0..10 {
+            for z in 0..10 {
+                for x in 0..10 {
+                    self.loaded_chunks.insert((x, y, z), Chunk::random());
                 }
             }
         }
     }
 
     pub fn empty_99(&mut self) {
-        for y in -1..=1 {
-            for z in -1..=1 {
-                for x in -1..=1 {
-                    self.loaded_chunks.insert((x, y, z), Chunk::empty());
-                }
-            }
-        }
+        self.loaded_chunks.insert((0, 0, 0), Chunk::full_of_block(BlockID::COBBLESTONE));
     }
 
     fn get_chunk_and_block_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
@@ -51,14 +49,15 @@ impl ChunkManager {
         let block_x = x.rem_euclid(16) as u32;
         let block_y = y.rem_euclid(16) as u32;
         let block_z = z.rem_euclid(16) as u32;
-        // let block_x = (if x < 0 { x.rem_euclid(16) - 1 } else { x.rem_euclid(16) }) as u32;
-        // let block_y = (if y < 0 { y.rem_euclid(16) - 1 } else { y.rem_euclid(16) }) as u32;
-        // let block_z = (if z < 0 { z.rem_euclid(16) - 1 } else { z.rem_euclid(16) }) as u32;
-
-        // dbg!(x, y, z);
-        // dbg!(block_x, block_y, block_z);
 
         (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
+    }
+
+    fn get_global_coords((chunk_x, chunk_y, chunk_z, block_x, block_y, block_z): (i32, i32, i32, u32, u32, u32)) -> (i32, i32, i32) {
+        let x = 16 * chunk_x + block_x as i32;
+        let y = 16 * chunk_y + block_y as i32;
+        let z = 16 * chunk_z + block_z as i32;
+        (x, y, z)
     }
 
     pub fn get(&self, x: i32, y: i32, z: i32) -> Option<BlockID> {
@@ -80,14 +79,77 @@ impl ChunkManager {
     }
 
     pub fn rebuild_dirty_chunks(&mut self, uv_map: &HashMap<BlockID, ((f32, f32), (f32, f32))>) {
-        for chunk in self.loaded_chunks.values_mut() {
+        let mut dirty_chunks: HashSet<(i32, i32, i32)> = HashSet::new();
+        // Nearby chunks can be also dirty if the change happens at the edge
+        for (&(x, y, z), chunk) in &self.loaded_chunks {
             if chunk.dirty {
-                chunk.regen_vbo(uv_map);
+                dirty_chunks.insert((x, y, z));
+            }
+            for &(rx, ry, rz) in &chunk.dirty_neighbours {
+                dirty_chunks.insert((x + rx, y + ry, z + rz));
+            }
+        }
+
+        let mut active_sides: HashMap<(i32, i32, i32), Vec<Sides>> = HashMap::new();
+        for &coords in &dirty_chunks {
+            let (c_x, c_y, c_z) = coords;
+            let chunk = self.loaded_chunks.get(&coords);
+            if let Some(chunk) = chunk {
+                let sides_vec = active_sides.entry(coords).or_default();
+                for b_y in 0..CHUNK_SIZE {
+                    for b_z in 0..CHUNK_SIZE {
+                        for b_x in 0..CHUNK_SIZE {
+                            let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+                            sides_vec.push(self.get_active_sides_of_block(g_x, g_y, g_z))
+                        }
+                    }
+                }
+            }
+        }
+
+        for coords in &dirty_chunks {
+            let mut i = 0;
+            let chunk = self.loaded_chunks.get_mut(&coords);
+            if let Some(chunk) = chunk {
+                let sides_vec = active_sides.get(&coords).unwrap();
+                let mut j = 0;
+
+                for y in 0..CHUNK_SIZE {
+                    for z in 0..CHUNK_SIZE {
+                        for x in 0..CHUNK_SIZE {
+                            let block = chunk.get(x, y, z);
+                            if block != BlockID::AIR {
+                                let (uv_bl, uv_tr) = uv_map.get(&block).unwrap().clone();
+
+                                let active_sides = sides_vec[j];
+
+                                let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
+                                gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
+                                chunk.vertices_drawn += cube_array.len() as u32 / 5;
+
+                                i += cube_array.len();
+                            }
+                            j += 1;
+                        }
+                    }
+                }
+                chunk.dirty = false;
+                chunk.dirty_neighbours.clear();
             }
         }
     }
 
-    pub fn render_loaded_chunks(&mut self, program: &mut ShaderProgram) {
+    pub fn get_active_sides_of_block(&self, x: i32, y: i32, z: i32) -> (bool, bool, bool, bool, bool, bool) {
+        let right = self.get(x + 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
+        let left = self.get(x - 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
+        let top = self.get(x, y + 1, z).filter(|&b| b != BlockID::AIR).is_none();
+        let bottom = self.get(x, y - 1, z).filter(|&b| b != BlockID::AIR).is_none();
+        let front = self.get(x, y, z + 1).filter(|&b| b != BlockID::AIR).is_none();
+        let back = self.get(x, y, z - 1).filter(|&b| b != BlockID::AIR).is_none();
+        (right, left, top, bottom, front, back)
+    }
+
+    pub fn render_loaded_chunks(&self, program: &mut ShaderProgram) {
         for ((x, y, z), chunk) in &self.loaded_chunks {
             let model_matrix = {
                 let translate_matrix = Matrix4::new_translation(&vec3(

@@ -251,10 +251,10 @@ fn main() {
                     let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 400.0);
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            // chunk_manager.set(BlockID::AIR, x, y, z);
+                            chunk_manager.set(BlockID::AIR, x, y, z);
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-                            // chunk_manager.set(BlockID::DIRT, near.x, near.y, near.z);
+                            chunk_manager.set(BlockID::DIRT, near.x, near.y, near.z);
                         }
 
                         println!("HIT {} {} {}", x, y, z);
@@ -268,7 +268,7 @@ fn main() {
             }
         }
 
-        let multiplier = 0.2f32;
+        let multiplier = 0.1f32;
 
         if input_cache.is_key_pressed(Key::W) {
             camera_position += forward(&camera_rotation).scale(multiplier);
