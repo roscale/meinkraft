@@ -9,6 +9,7 @@ use std::hash::Hash;
 use crate::shapes::unit_cube_array;
 use std::os::raw::c_void;
 use std::cell::RefCell;
+use noise::{SuperSimplex, NoiseFn, Point3, Point2};
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -28,9 +29,9 @@ impl ChunkManager {
     }
 
     pub fn preload_some_chunks(&mut self) {
-        for y in 0..10 {
-            for z in 0..10 {
-                for x in 0..10 {
+        for y in 0..2 {
+            for z in 0..2 {
+                for x in 0..2 {
                     self.loaded_chunks.insert((x, y, z), Chunk::random());
                 }
             }
@@ -39,6 +40,35 @@ impl ChunkManager {
 
     pub fn empty_99(&mut self) {
         self.loaded_chunks.insert((0, 0, 0), Chunk::full_of_block(BlockID::COBBLESTONE));
+    }
+
+    pub fn simplex(&mut self) {
+        let n = 20;
+
+        let ss = SuperSimplex::new();
+        for y in 0..16 {
+            for z in -n..=n {
+                for x in -n..=n {
+                    self.loaded_chunks.insert((x, y, z), Chunk::empty());
+                }
+            }
+        }
+
+
+
+        for x in -16 * n..16 * n {
+            for z in -16 * n..16 * n {
+                let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
+                let y = ss.get(Point2::from([xf, zf]));
+                let y = (16.0 * (y + 1.0)) as i32;
+                self.set(BlockID::DIRT, x, y, z);
+                self.set(BlockID::DIRT, x, y - 1, z);
+                self.set(BlockID::DIRT, x, y - 2, z);
+                self.set(BlockID::COBBLESTONE, x, y - 3, z);
+            }
+        }
+
+
     }
 
     fn get_chunk_and_block_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {

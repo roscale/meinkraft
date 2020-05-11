@@ -196,6 +196,7 @@ fn main() {
 
     let mut chunk_manager = ChunkManager::new();
     chunk_manager.preload_some_chunks();
+    chunk_manager.simplex();
     // chunk_manager.empty_99();
     // chunk_manager.set(BlockID::COBBLESTONE, 1, 1, 1);
     // chunk_manager.set(BlockID::COBBLESTONE, -16, -16, -16);
