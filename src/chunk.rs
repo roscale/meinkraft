@@ -10,20 +10,21 @@ use crate::chunk_manager::{CHUNK_VOLUME, CHUNK_SIZE};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {
-    AIR,
-    DIRT,
-    COBBLESTONE,
-    OBSIDIAN,
+    Air,
+    Dirt,
+    GrassBlock,
+    Cobblestone,
+    Obsidian,
 }
 
 impl Distribution<BlockID> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BlockID {
         match rng.gen_range(1, 4) {
             // 0 => BlockID::AIR,
-            1 => BlockID::DIRT,
-            2 => BlockID::COBBLESTONE,
-            3 => BlockID::OBSIDIAN,
-            _ => BlockID::AIR,
+            1 => BlockID::Dirt,
+            2 => BlockID::Cobblestone,
+            3 => BlockID::Obsidian,
+            _ => BlockID::Air,
         }
     }
 }
@@ -78,7 +79,7 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Chunk {
-            blocks: [BlockID::AIR; CHUNK_VOLUME as usize],
+            blocks: [BlockID::Air; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
@@ -104,7 +105,7 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         let mut c = Chunk {
-            blocks: [BlockID::AIR; CHUNK_VOLUME as usize],
+            blocks: [BlockID::Air; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,

@@ -9,6 +9,7 @@ pub mod util;
 pub mod chunk_manager;
 pub mod chunk;
 pub mod raycast;
+pub mod block_texture_sides;
 
 use glfw::{WindowHint, OpenGlProfileHint, Context, Key, Action, CursorMode, Cursor, MouseButton};
 use glfw::ffi::glfwSwapInterval;
@@ -25,9 +26,13 @@ use std::collections::HashMap;
 use crate::util::forward;
 use crate::chunk::{Chunk, BlockID};
 use rand::random;
-use image::GenericImageView;
+use image::{GenericImageView, DynamicImage};
 use glfw::MouseButton::Button1;
 use crate::chunk_manager::ChunkManager;
+use crate::block_texture_sides::BlockFaces;
+
+type UVCoords = (f32, f32, f32, f32);
+type UVFaces = (UVCoords, UVCoords, UVCoords, UVCoords, UVCoords, UVCoords);
 
 pub struct InputCache {
     pub last_cursor_pos: Vec2,
@@ -105,14 +110,19 @@ fn main() {
     let mut program = ShaderProgram::from_shaders(vert, frag).unwrap();
 
 
-
     // Generate texture atlas
-    let mut texture_map: HashMap<BlockID, &str> = HashMap::new();
-    texture_map.insert(BlockID::DIRT, "blocks/dirt.png");
-    texture_map.insert(BlockID::COBBLESTONE, "blocks/cobblestone.png");
-    texture_map.insert(BlockID::OBSIDIAN, "blocks/obsidian.png");
+    let mut texture_map: HashMap<BlockID, BlockFaces<&str>> = HashMap::new();
+    texture_map.insert(BlockID::Dirt, BlockFaces::All("blocks/dirt.png"));
+    texture_map.insert(BlockID::GrassBlock, BlockFaces::Sides {
+        sides: "blocks/grass_block_side.png",
+        top: "blocks/grass_block_top.png",
+        bottom: "blocks/dirt.png",
+    });
+    texture_map.insert(BlockID::Cobblestone, BlockFaces::All("blocks/cobblestone.png"));
+    texture_map.insert(BlockID::Obsidian, BlockFaces::All("blocks/obsidian.png"));
 
-    let mut uv_map = HashMap::<BlockID, ((f32, f32), (f32, f32))>::new();
+
+    let mut uv_map = HashMap::<BlockID, BlockFaces<(f32, f32, f32, f32)>>::new();
 
     let mut atlas: u32 = 0;
     gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
@@ -123,7 +133,7 @@ fn main() {
     let mut x = 0;
     let mut y = 0;
 
-    for (block, texture_path) in texture_map {
+    let load_image = |texture_path: &str| {
         let img = image::open(texture_path);
         let img = match img {
             Ok(img) => img.flipv(),
@@ -131,24 +141,86 @@ fn main() {
         };
 
         match img.color() {
-            image::RGBA(8) => {},
+            image::RGBA(8) => {}
             _ => panic!("Texture format not supported")
         };
+        img
+    };
 
+    let mut blit_image = |img: &mut DynamicImage| {
+        let (dest_x, dest_y) = (x, y);
         gl_call!(gl::TextureSubImage2D(
             atlas, 0,
-            x, y, img.width() as i32, img.height() as i32,
+            dest_x, dest_y, img.width() as i32, img.height() as i32,
             gl::RGBA, gl::UNSIGNED_BYTE,
             img.raw_pixels().as_ptr() as *mut c_void));
-
-        uv_map.insert(block, ((x as f32 / 1024.0, y as f32 / 1024.0),
-                              ((x as f32 + 16.0) / 1024.0, (y as f32 + 16.0) / 1024.0)));
 
         x += 16;
         if x >= 1024 {
             x = 0;
             y += 16;
         }
+
+        let dest_x = dest_x as f32;
+        let dest_y = dest_y as f32;
+        (dest_x / 1024.0, dest_y / 1024.0, (dest_x + 16.0) / 1024.0, (dest_y + 16.0) / 1024.0)
+    };
+
+    for (block, faces) in texture_map {
+        match faces {
+            BlockFaces::All(all) => {
+                let mut img = load_image(all);
+                let uv = blit_image(&mut img);
+                uv_map.insert(block, BlockFaces::All(uv));
+            }
+            BlockFaces::Sides { sides, top, bottom } => {
+                let mut img = load_image(sides);
+                let uv_sides = blit_image(&mut img);
+
+                let mut img = load_image(top);
+                let uv_top = blit_image(&mut img);
+
+                let mut img = load_image(bottom);
+                let uv_bottom = blit_image(&mut img);
+
+                uv_map.insert(block, BlockFaces::Sides {
+                    sides: uv_sides,
+                    top: uv_top,
+                    bottom: uv_bottom,
+                });
+            }
+            BlockFaces::Each { top, bottom, front, back, left, right } => {
+                let mut img = load_image(top);
+                let uv_top = blit_image(&mut img);
+
+                let mut img = load_image(bottom);
+                let uv_bottom = blit_image(&mut img);
+
+                let mut img = load_image(front);
+                let uv_front = blit_image(&mut img);
+
+                let mut img = load_image(back);
+                let uv_back = blit_image(&mut img);
+
+                let mut img = load_image(left);
+                let uv_left = blit_image(&mut img);
+
+                let mut img = load_image(right);
+                let uv_right = blit_image(&mut img);
+
+                uv_map.insert(block, BlockFaces::Each {
+                    top: uv_top,
+                    bottom: uv_bottom,
+                    front: uv_front,
+                    back: uv_back,
+                    left: uv_left,
+                    right: uv_right,
+                });
+            }
+        }
+
+        // uv_map.insert(block, ((x as f32 / 1024.0, y as f32 / 1024.0),
+        //                       ((x as f32 + 16.0) / 1024.0, (y as f32 + 16.0) / 1024.0)));
     }
 
     gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 0));
@@ -174,7 +246,6 @@ fn main() {
     //
     // gl_call!(gl::VertexArrayAttribBinding(cube_vao, 0, 0));
     // gl_call!(gl::VertexArrayAttribBinding(cube_vao, 1, 0));
-
 
 
     // gl_call!(gl::VertexArrayVertexBuffer(cube_vao, 0, cube_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
@@ -244,17 +315,17 @@ fn main() {
                     let fw = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
                         chunk_manager.get_block(x, y, z)
-                            .filter(|&block| block != BlockID::AIR)
+                            .filter(|&block| block != BlockID::Air)
                             .and_then(|_| Some((x, y, z)))
                     };
 
                     let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 400.0);
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            chunk_manager.set_block(BlockID::AIR, x, y, z);
+                            chunk_manager.set_block(BlockID::Air, x, y, z);
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-                            chunk_manager.set_block(BlockID::DIRT, near.x, near.y, near.z);
+                            chunk_manager.set_block(BlockID::Dirt, near.x, near.y, near.z);
                         }
 
                         println!("HIT {} {} {}", x, y, z);
@@ -302,7 +373,6 @@ fn main() {
         let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
 
         chunk_manager.rebuild_dirty_chunks(&uv_map);
-
 
 
         program.use_program();

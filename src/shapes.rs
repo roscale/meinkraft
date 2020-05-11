@@ -1,7 +1,9 @@
+use crate::{UVCoords, UVFaces};
+
 // bl = bottom left
 // tr = top right
 pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
-                                     uv_bl: (f32, f32), uv_tr: (f32, f32),
+                                     (front_uv, back_uv, top_uv, bottom_uv, left_uv, right_uv): UVFaces,
                                      (right, left, top, bottom, front, back): (bool, bool, bool, bool, bool, bool)) -> u32 {
     let vertex_size = 5;
     let vertices_per_face = 6;
@@ -12,72 +14,72 @@ pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
 
     if front {
         ptr.offset(i).copy_from_nonoverlapping([
-            0.0f32 + x,  0.0 + y, 1.0 + z, uv_bl.0, uv_bl.1,
-            1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
-            1.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
-            0.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
+            0.0f32 + x,  0.0 + y, 1.0 + z, front_uv.0, front_uv.1,
+            1.0 + x,  0.0 + y,  1.0 + z, front_uv.2, front_uv.1,
+            1.0 + x,  1.0 + y,  1.0 + z, front_uv.2, front_uv.3,
+            1.0 + x,  1.0 + y,  1.0 + z, front_uv.2, front_uv.3,
+            0.0 + x,  1.0 + y,  1.0 + z, front_uv.0, front_uv.3,
+            0.0 + x,  0.0 + y,  1.0 + z, front_uv.0, front_uv.1,
         ].as_ptr(), face_size);
         i += face_size as isize;
         copied_vertices += vertices_per_face;
     }
     if back {
         ptr.offset(i).copy_from_nonoverlapping([
-            1.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-            0.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-            1.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            1.0 + x,  0.0 + y,  0.0 + z, back_uv.0, back_uv.1,
+            0.0 + x,  0.0 + y,  0.0 + z, back_uv.2, back_uv.1,
+            0.0 + x,  1.0 + y,  0.0 + z, back_uv.2, back_uv.3,
+            0.0 + x,  1.0 + y,  0.0 + z, back_uv.2, back_uv.3,
+            1.0 + x,  1.0 + y,  0.0 + z, back_uv.0, back_uv.3,
+            1.0 + x,  0.0 + y,  0.0 + z, back_uv.0, back_uv.1,
         ].as_ptr(), face_size);
         i += face_size as isize;
         copied_vertices += vertices_per_face;
     }
     if left {
         ptr.offset(i).copy_from_nonoverlapping([
-            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-            0.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
-            0.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            0.0 + x,  0.0 + y,  0.0 + z, left_uv.0, left_uv.1,
+            0.0 + x,  0.0 + y,  1.0 + z, left_uv.2, left_uv.1,
+            0.0 + x,  1.0 + y,  1.0 + z, left_uv.2, left_uv.3,
+            0.0 + x,  1.0 + y,  1.0 + z, left_uv.2, left_uv.3,
+            0.0 + x,  1.0 + y,  0.0 + z, left_uv.0, left_uv.3,
+            0.0 + x,  0.0 + y,  0.0 + z, left_uv.0, left_uv.1,
         ].as_ptr(), face_size);
         i += face_size as isize;
         copied_vertices += vertices_per_face;
     }
     if right {
         ptr.offset(i).copy_from_nonoverlapping([
-            1.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
-            1.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
-            1.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
+            1.0 + x,  0.0 + y,  1.0 + z, right_uv.0, right_uv.1,
+            1.0 + x,  0.0 + y,  0.0 + z, right_uv.2, right_uv.1,
+            1.0 + x,  1.0 + y,  0.0 + z, right_uv.2, right_uv.3,
+            1.0 + x,  1.0 + y,  0.0 + z, right_uv.2, right_uv.3,
+            1.0 + x,  1.0 + y,  1.0 + z, right_uv.0, right_uv.3,
+            1.0 + x,  0.0 + y,  1.0 + z, right_uv.0, right_uv.1,
         ].as_ptr(), face_size);
         i += face_size as isize;
         copied_vertices += vertices_per_face;
     }
     if top {
         ptr.offset(i).copy_from_nonoverlapping([
-            0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
-            1.0 + x,  1.0 + y,  1.0 + z, uv_tr.0, uv_bl.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  1.0 + y,  0.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  0.0 + z, uv_bl.0, uv_tr.1,
-            0.0 + x,  1.0 + y,  1.0 + z, uv_bl.0, uv_bl.1,
+            0.0 + x,  1.0 + y,  1.0 + z, top_uv.0, top_uv.1,
+            1.0 + x,  1.0 + y,  1.0 + z, top_uv.2, top_uv.1,
+            1.0 + x,  1.0 + y,  0.0 + z, top_uv.2, top_uv.3,
+            1.0 + x,  1.0 + y,  0.0 + z, top_uv.2, top_uv.3,
+            0.0 + x,  1.0 + y,  0.0 + z, top_uv.0, top_uv.3,
+            0.0 + x,  1.0 + y,  1.0 + z, top_uv.0, top_uv.1,
         ].as_ptr(), face_size);
         i += face_size as isize;
         copied_vertices += vertices_per_face;
     }
     if bottom {
         ptr.offset(i).copy_from_nonoverlapping([
-            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
-            1.0 + x,  0.0 + y,  0.0 + z, uv_tr.0, uv_bl.1,
-            1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-            1.0 + x,  0.0 + y,  1.0 + z, uv_tr.0, uv_tr.1,
-            0.0 + x,  0.0 + y,  1.0 + z, uv_bl.0, uv_tr.1,
-            0.0 + x,  0.0 + y,  0.0 + z, uv_bl.0, uv_bl.1,
+            0.0 + x,  0.0 + y,  0.0 + z, bottom_uv.0, bottom_uv.1,
+            1.0 + x,  0.0 + y,  0.0 + z, bottom_uv.2, bottom_uv.1,
+            1.0 + x,  0.0 + y,  1.0 + z, bottom_uv.2, bottom_uv.3,
+            1.0 + x,  0.0 + y,  1.0 + z, bottom_uv.2, bottom_uv.3,
+            0.0 + x,  0.0 + y,  1.0 + z, bottom_uv.0, bottom_uv.3,
+            0.0 + x,  0.0 + y,  0.0 + z, bottom_uv.0, bottom_uv.1,
         ].as_ptr(), face_size);
         i += face_size as isize;
         copied_vertices += vertices_per_face;
