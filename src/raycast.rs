@@ -1,3 +1,6 @@
+// Algorithm translated from https://github.com/andyhall/fast-voxel-raycast
+// Paper: http://www.cse.chalmers.se/edu/year/2010/course/TDA361/grid.pdf
+
 use nalgebra_glm::{Vec3, floor, I32Vec3, IVec3};
 use itertools::izip;
 use nalgebra::Vector3;

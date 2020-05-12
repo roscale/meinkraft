@@ -16,7 +16,9 @@ pub enum BlockID {
     Cobblestone,
     Obsidian,
     OakLog,
-    OakLeaves
+    OakLeaves,
+    Urss,
+    Hitler,
 }
 
 impl BlockID {
@@ -71,7 +73,9 @@ pub struct Chunk {
     pub vao: u32,
     pub vbo: u32,
     pub vertices_drawn: u32,
+    // When a chunk is dirty, its VBO needs to be recreated to match the blocks array
     pub dirty: bool,
+    // Changes to the outer blocks of the chunk lead to dirty nearby chunks
     pub dirty_neighbours: HashSet<(i32, i32, i32)>
 }
 
@@ -116,22 +120,23 @@ impl Chunk {
     pub fn random() -> Chunk {
         let (vao, vbo) = create_vao_vbo();
 
-        let mut c = Chunk {
-            blocks: [BlockID::Air; CHUNK_VOLUME as usize],
+        Chunk {
+            blocks: {
+                let mut blocks = [BlockID::Air; CHUNK_VOLUME as usize];
+                for i in 0..blocks.len() {
+                    blocks[i] = random::<BlockID>();
+                }
+                blocks
+            },
             vao,
             vbo,
             vertices_drawn: 0,
             dirty: true,
             dirty_neighbours: Chunk::all_neighbours(),
-        };
-
-        for i in 0..c.blocks.len() {
-            c.blocks[i] = random::<BlockID>();
         }
-        c
     }
 
-    #[inline]
+    // #[inline]
     fn coords_to_index(x: u32, y: u32, z: u32) -> usize {
         (y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x) as usize
     }
@@ -145,6 +150,7 @@ impl Chunk {
     pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
         self.blocks[Chunk::coords_to_index(x, y, z)] = block;
         self.dirty = true;
+        // The edges of the chunk
         if x == 0 {
             self.dirty_neighbours.insert((-1, 0, 0));
         } else if x == 15 {

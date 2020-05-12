@@ -1,3 +1,7 @@
+//
+// Unused for now
+// Will be useful for drawing the UI
+//
 use gl;
 use std::collections::HashMap;
 use crate::gl_call;

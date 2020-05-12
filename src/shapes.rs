@@ -2,6 +2,7 @@ use crate::{UVCoords, UVFaces};
 
 // bl = bottom left
 // tr = top right
+// Creates and write the vertices of a cube directly into "ptr" (usually a VBO mapped to virtual memory)
 pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
                                      (front_uv, back_uv, top_uv, bottom_uv, left_uv, right_uv): UVFaces,
                                      (right, left, top, bottom, front, back): (bool, bool, bool, bool, bool, bool)) -> u32 {
@@ -12,6 +13,7 @@ pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
     let mut i = 0;
     let mut copied_vertices = 0;
 
+    // First 3 floats contain the position, last 2 are the UV coordinates
     if front {
         ptr.offset(i).copy_from_nonoverlapping([
             0.0f32 + x,  0.0 + y, 1.0 + z, front_uv.0, front_uv.1,

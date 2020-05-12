@@ -1,35 +1,33 @@
+use std::collections::HashMap;
+use std::ffi::CString;
+use std::os::raw::c_void;
+
+use glfw::{Action, Context, Cursor, CursorMode, Key, MouseButton, OpenGlProfileHint, WindowHint};
+use glfw::ffi::glfwSwapInterval;
+use glfw::MouseButton::Button1;
+use glfw::WindowEvent::Pos;
+use image::{DynamicImage, GenericImageView};
+use nalgebra::{clamp, Matrix4, Vector3};
+use nalgebra_glm::{IVec3, Mat4, pi, proj, Vec2, vec2, Vec3, vec3};
+use rand::random;
+
+use crate::block_texture_faces::BlockFaces;
+use crate::chunk::{BlockID, Chunk};
+use crate::chunk_manager::ChunkManager;
+use crate::debugging::*;
+use crate::shader_compilation::{ShaderPart, ShaderProgram};
+use crate::util::forward;
+
 #[macro_use]
 pub mod debugging;
 pub mod draw_commands;
 pub mod shader_compilation;
-pub mod texture;
-pub mod ecs;
 pub mod shapes;
 pub mod util;
 pub mod chunk_manager;
 pub mod chunk;
 pub mod raycast;
-pub mod block_texture_sides;
-
-use glfw::{WindowHint, OpenGlProfileHint, Context, Key, Action, CursorMode, Cursor, MouseButton};
-use glfw::ffi::glfwSwapInterval;
-use std::os::raw::c_void;
-use crate::debugging::*;
-use std::ffi::CString;
-use crate::shader_compilation::{ShaderPart, ShaderProgram};
-use crate::ecs::components::Position;
-use glfw::WindowEvent::Pos;
-use nalgebra_glm::{Vec3, vec3, Mat4, Vec2, vec2, pi, IVec3, proj};
-use nalgebra::{Vector3, Matrix4, clamp};
-use crate::texture::create_texture;
-use std::collections::HashMap;
-use crate::util::forward;
-use crate::chunk::{Chunk, BlockID};
-use rand::random;
-use image::{GenericImageView, DynamicImage};
-use glfw::MouseButton::Button1;
-use crate::chunk_manager::ChunkManager;
-use crate::block_texture_sides::BlockFaces;
+pub mod block_texture_faces;
 
 type UVCoords = (f32, f32, f32, f32);
 type UVFaces = (UVCoords, UVCoords, UVCoords, UVCoords, UVCoords, UVCoords);
@@ -100,7 +98,7 @@ fn main() {
 
 
     let mut camera_position = vec3(0.0f32, 0.0, 0.0);
-    let mut camera_rotation = vec3(0.0f32, 0.0, 0.0);
+    let mut camera_rotation = vec3(0.0f32, 0.0, 0.0); // In radians
 
 
     let vert = ShaderPart::from_vert_source(
@@ -110,7 +108,6 @@ fn main() {
     let mut program = ShaderProgram::from_shaders(vert, frag).unwrap();
 
 
-    // Generate texture atlas
     let mut texture_map: HashMap<BlockID, BlockFaces<&str>> = HashMap::new();
     texture_map.insert(BlockID::Dirt, BlockFaces::All("blocks/dirt.png"));
     texture_map.insert(BlockID::GrassBlock, BlockFaces::Sides {
@@ -123,21 +120,20 @@ fn main() {
     texture_map.insert(BlockID::OakLog, BlockFaces::Sides {
         sides: "blocks/oak_log.png",
         top: "blocks/oak_log_top.png",
-        bottom: "blocks/oak_log_top.png"
+        bottom: "blocks/oak_log_top.png",
     });
     texture_map.insert(BlockID::OakLeaves, BlockFaces::All("blocks/oak_leaves_mod.png"));
+    texture_map.insert(BlockID::Urss, BlockFaces::All("blocks/urss.png"));
+    texture_map.insert(BlockID::Hitler, BlockFaces::All("blocks/hitler.png"));
 
+    let mut uv_map = HashMap::<BlockID, BlockFaces<UVCoords>>::new();
 
-    let mut uv_map = HashMap::<BlockID, BlockFaces<(f32, f32, f32, f32)>>::new();
-
+    // Generate texture atlas
     let mut atlas: u32 = 0;
     gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
     gl_call!(gl::TextureParameteri(atlas, gl::TEXTURE_MIN_FILTER, gl::NEAREST_MIPMAP_NEAREST as i32));
     gl_call!(gl::TextureParameteri(atlas, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32));
-    gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, 1024, 1024));
-
-    let mut x = 0;
-    let mut y = 0;
+    gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, 1024, 1024)); // Big enough to contain all the textures
 
     let load_image = |texture_path: &str| {
         let img = image::open(texture_path);
@@ -145,7 +141,6 @@ fn main() {
             Ok(img) => img.flipv(),
             Err(err) => panic!("Filename: {}, error: {}", texture_path, err.to_string())
         };
-
         match img.color() {
             image::RGBA(8) => {}
             _ => panic!("Texture format not supported")
@@ -153,7 +148,9 @@ fn main() {
         img
     };
 
-    let mut blit_image = |img: &mut DynamicImage| {
+    let mut x = 0;
+    let mut y = 0;
+    let mut blit_image_to_texture = |img: &mut DynamicImage| {
         let (dest_x, dest_y) = (x, y);
         gl_call!(gl::TextureSubImage2D(
             atlas, 0,
@@ -161,6 +158,7 @@ fn main() {
             gl::RGBA, gl::UNSIGNED_BYTE,
             img.raw_pixels().as_ptr() as *mut c_void));
 
+        // Left to right, bottom to top
         x += 16;
         if x >= 1024 {
             x = 0;
@@ -169,115 +167,46 @@ fn main() {
 
         let dest_x = dest_x as f32;
         let dest_y = dest_y as f32;
+        // Coordinates must be between 0.0 and 1.0 (percentage)
         (dest_x / 1024.0, dest_y / 1024.0, (dest_x + 16.0) / 1024.0, (dest_y + 16.0) / 1024.0)
     };
 
+    // Load all the images and fill the UV map for all the blocks
+    // TODO don't load the same texture multiple times if reused for another block
     for (block, faces) in texture_map {
         match faces {
             BlockFaces::All(all) => {
-                let mut img = load_image(all);
-                let uv = blit_image(&mut img);
-                uv_map.insert(block, BlockFaces::All(uv));
+                uv_map.insert(block, BlockFaces::All(blit_image_to_texture(&mut load_image(all))));
             }
             BlockFaces::Sides { sides, top, bottom } => {
-                let mut img = load_image(sides);
-                let uv_sides = blit_image(&mut img);
-
-                let mut img = load_image(top);
-                let uv_top = blit_image(&mut img);
-
-                let mut img = load_image(bottom);
-                let uv_bottom = blit_image(&mut img);
-
                 uv_map.insert(block, BlockFaces::Sides {
-                    sides: uv_sides,
-                    top: uv_top,
-                    bottom: uv_bottom,
+                    sides: blit_image_to_texture(&mut load_image(sides)),
+                    top: blit_image_to_texture(&mut load_image(top)),
+                    bottom: blit_image_to_texture(&mut load_image(bottom)),
                 });
             }
             BlockFaces::Each { top, bottom, front, back, left, right } => {
-                let mut img = load_image(top);
-                let uv_top = blit_image(&mut img);
-
-                let mut img = load_image(bottom);
-                let uv_bottom = blit_image(&mut img);
-
-                let mut img = load_image(front);
-                let uv_front = blit_image(&mut img);
-
-                let mut img = load_image(back);
-                let uv_back = blit_image(&mut img);
-
-                let mut img = load_image(left);
-                let uv_left = blit_image(&mut img);
-
-                let mut img = load_image(right);
-                let uv_right = blit_image(&mut img);
-
                 uv_map.insert(block, BlockFaces::Each {
-                    top: uv_top,
-                    bottom: uv_bottom,
-                    front: uv_front,
-                    back: uv_back,
-                    left: uv_left,
-                    right: uv_right,
+                    top: blit_image_to_texture(&mut load_image(top)),
+                    bottom: blit_image_to_texture(&mut load_image(bottom)),
+                    front: blit_image_to_texture(&mut load_image(front)),
+                    back: blit_image_to_texture(&mut load_image(back)),
+                    left: blit_image_to_texture(&mut load_image(left)),
+                    right: blit_image_to_texture(&mut load_image(right)),
                 });
             }
         }
-
-        // uv_map.insert(block, ((x as f32 / 1024.0, y as f32 / 1024.0),
-        //                       ((x as f32 + 16.0) / 1024.0, (y as f32 + 16.0) / 1024.0)));
     }
 
     gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 0));
     gl_call!(gl::BindTexture(gl::TEXTURE_2D, atlas));
 
-    // let cube = unit_cube_array(0.0, 0.0, 0.0);
-    //
-    // let mut cube_vbo = 0;
-    // gl_call!(gl::CreateBuffers(1, &mut cube_vbo));
-    // gl_call!(gl::NamedBufferData(cube_vbo,
-    //         (cube.len() * std::mem::size_of::<f32>()) as isize,
-    //         cube.as_ptr() as *mut c_void,
-    //         gl::STATIC_DRAW));
-    //
-    // let mut cube_vao = 0;
-    // gl_call!(gl::CreateVertexArrays(1, &mut cube_vao));
-    //
-    // gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 0));
-    // gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 1));
-    //
-    // gl_call!(gl::VertexArrayAttribFormat(cube_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
-    // gl_call!(gl::VertexArrayAttribFormat(cube_vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
-    //
-    // gl_call!(gl::VertexArrayAttribBinding(cube_vao, 0, 0));
-    // gl_call!(gl::VertexArrayAttribBinding(cube_vao, 1, 0));
-
-
-    // gl_call!(gl::VertexArrayVertexBuffer(cube_vao, 0, cube_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
-
-    // let mut c = Chunk::empty();
-    // c.set(BlockID::COBBLESTONE, 0, 0, 0);
-    // c.set(BlockID::COBBLESTONE, 1, 0, 0);
-    // c.regen_vbo();
-    // let mut c = Chunk::empty();
-    //
-    // for y in 0..4 {
-    //     for x in 0..16 {
-    //         for z in 0..16 {
-    //             c.set(BlockID::COBBLESTONE, x, y, z);
-    //         }
-    //     }
-    // }
-
     let mut chunk_manager = ChunkManager::new();
     // chunk_manager.preload_some_chunks();
-    chunk_manager.simplex();
+    chunk_manager.simplex_noise();
     // chunk_manager.empty_99();
     // chunk_manager.set(BlockID::COBBLESTONE, 1, 1, 1);
     // chunk_manager.set(BlockID::COBBLESTONE, -16, -16, -16);
-
-    // c.regen_vbo(&uv_map);
 
     let mut input_cache = InputCache::default();
     let mut past_cursor_pos = (0.0, 0.0);
@@ -301,23 +230,14 @@ fn main() {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     window.set_should_close(true);
                 }
-                // glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
-                //     for _ in 0..16*16*8 {
-                //         c.set(BlockID::AIR,
-                //               (random::<u8>() % 16) as usize,
-                //               (random::<u8>() % 16) as usize,
-                //               (random::<u8>() % 16) as usize);
-                //     }
-                //
-                //     c.regen_vbo(&uv_map);
-                //     // exit(0);
-                //
-                // }
+
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
                 }
 
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
+                    let reach_distance = 400.0;
+
                     let fw = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
                         chunk_manager.get_block(x, y, z)
@@ -325,17 +245,18 @@ fn main() {
                             .and_then(|_| Some((x, y, z)))
                     };
 
-                    let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), 400.0);
+                    let hit = raycast::raycast(&get_voxel, &camera_position, &fw.normalize(), reach_distance);
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
                             chunk_manager.set_block(BlockID::Air, x, y, z);
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
+
+                            // TODO implement Hotbar
                             chunk_manager.set_block(BlockID::Dirt, near.x, near.y, near.z);
                         }
 
                         println!("HIT {} {} {}", x, y, z);
-                        // dbg!(fw);
                     } else {
                         println!("NO HIT");
                     }
@@ -345,6 +266,7 @@ fn main() {
             }
         }
 
+        // TODO use deltatime
         let multiplier = 0.1f32;
 
         if input_cache.is_key_pressed(Key::W) {
@@ -371,8 +293,6 @@ fn main() {
             camera_position.y -= multiplier;
         }
 
-        // dbg!(camera_position);
-        // dbg!(camera_rotation);
         let direction = forward(&camera_rotation);
 
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
@@ -384,13 +304,12 @@ fn main() {
         program.use_program();
         program.set_uniform_matrix4fv("view", view_matrix.as_ptr());
         program.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
-        program.set_uniform1i("tex", 0);
+        program.set_uniform1i("tex", 0); // The texture atlas
 
         gl_call!(gl::ClearColor(0.74, 0.84, 1.0, 1.0));
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 
         chunk_manager.render_loaded_chunks(&mut program);
-
         window.swap_buffers();
     }
 }
