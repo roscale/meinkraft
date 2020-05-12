@@ -97,7 +97,7 @@ fn main() {
     gl_call!(gl::Viewport(0, 0, 800, 800));
 
 
-    let mut camera_position = vec3(0.0f32, 0.0, 0.0);
+    let mut camera_position = vec3(0.0f32, 30.0, 0.0);
     let mut camera_rotation = vec3(0.0f32, 0.0, 0.0); // In radians
 
 
