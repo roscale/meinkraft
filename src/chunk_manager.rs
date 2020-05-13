@@ -13,12 +13,13 @@ use noise::{SuperSimplex, NoiseFn, Point3, Point2};
 use crate::block_texture_faces::{BlockFaces, get_uv_every_side};
 use rand::random;
 use crate::UVCoords;
+use std::ptr::null;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 pub const CUBE_SIZE: u32 = 180;
 
-type Sides = (bool, bool, bool, bool, bool, bool);
+type Sides = [bool; 6];
 
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
@@ -174,8 +175,10 @@ impl ChunkManager {
                 for b_y in 0..CHUNK_SIZE {
                     for b_z in 0..CHUNK_SIZE {
                         for b_x in 0..CHUNK_SIZE {
-                            let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-                            active_faces_vec.push(self.get_active_faces_of_block(g_x, g_y, g_z))
+                            if !chunk.get_block(b_x, b_y, b_z).is_air() {
+                                let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+                                active_faces_vec.push(self.get_active_faces_of_block(g_x, g_y, g_z))
+                            }
                         }
                     }
                 }
@@ -184,11 +187,31 @@ impl ChunkManager {
 
         // Update the VBOs of the dirty chunks
         for chunk_coords in &dirty_chunks {
-            let mut vbo_offset = 0;
             let chunk = self.loaded_chunks.get_mut(&chunk_coords);
+            // We check for a valid chunk because maybe the calculated neighbour chunk does not exist
             if let Some(chunk) = chunk {
+                chunk.dirty = false;
+                chunk.dirty_neighbours.clear();
+                chunk.vertices_drawn = 0;
+
+                let sides = active_faces.get(&chunk_coords).unwrap();
+                let n_visible_faces = sides.iter().map(|faces| faces.iter()
+                    .fold(0, |acc, &b| acc + b as u32))
+                    .fold(0, |acc, n| acc + n);
+
+                if n_visible_faces == 0 {
+                    continue;
+                }
+
+                // Initialize the VBO
+                gl_call!(gl::NamedBufferData(chunk.vbo,
+                    (180 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                    null(),
+                    gl::DYNAMIC_DRAW));
+
                 // Map VBO to virtual memory
                 let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(chunk.vbo, gl::WRITE_ONLY)) as *mut f32;
+                let mut vbo_offset = 0;
 
                 let sides_vec = active_faces.get(&chunk_coords).unwrap();
                 let mut j = 0;
@@ -208,32 +231,33 @@ impl ChunkManager {
                                 // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
                                 chunk.vertices_drawn += copied_vertices;
                                 vbo_offset += copied_vertices as isize * 5; // 5 floats per vertex
+                                j += 1;
                             }
-                            j += 1;
                         }
                     }
                 }
                 gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
-
-                chunk.dirty = false;
-                chunk.dirty_neighbours.clear();
             }
         }
     }
 
     // An active face is a block face next to a transparent block that needs to be rendered
-    pub fn get_active_faces_of_block(&self, x: i32, y: i32, z: i32) -> (bool, bool, bool, bool, bool, bool) {
+    pub fn get_active_faces_of_block(&self, x: i32, y: i32, z: i32) -> [bool; 6] {
         let right = self.get_block(x + 1, y, z).filter(|&b| !b.is_transparent()).is_none();
         let left = self.get_block(x - 1, y, z).filter(|&b| !b.is_transparent()).is_none();
         let top = self.get_block(x, y + 1, z).filter(|&b| !b.is_transparent()).is_none();
         let bottom = self.get_block(x, y - 1, z).filter(|&b| !b.is_transparent()).is_none();
         let front = self.get_block(x, y, z + 1).filter(|&b| !b.is_transparent()).is_none();
         let back = self.get_block(x, y, z - 1).filter(|&b| !b.is_transparent()).is_none();
-        (right, left, top, bottom, front, back)
+        [right, left, top, bottom, front, back]
     }
 
     pub fn render_loaded_chunks(&self, program: &mut ShaderProgram) {
         for ((x, y, z), chunk) in &self.loaded_chunks {
+            // Skip rendering the chunk if there is nothing to draw
+            if chunk.vertices_drawn == 0 {
+                continue;
+            }
             let model_matrix = {
                 let translate_matrix = Matrix4::new_translation(&vec3(
                     *x as f32, *y as f32, *z as f32).scale(16.0));

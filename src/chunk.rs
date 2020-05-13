@@ -22,6 +22,9 @@ pub enum BlockID {
 }
 
 impl BlockID {
+    pub fn is_air(&self) -> bool {
+        self == &BlockID::Air
+    }
     pub fn is_transparent(&self) -> bool {
         match self {
             &BlockID::Air |
@@ -59,10 +62,8 @@ fn create_vao_vbo() -> (u32, u32) {
 
     let mut vbo = 0;
     gl_call!(gl::CreateBuffers(1, &mut vbo));
-    gl_call!(gl::NamedBufferData(vbo,
-            (180 * std::mem::size_of::<f32>() * CHUNK_VOLUME as usize) as isize,
-            null(),
-            gl::DYNAMIC_DRAW));
+    // We intentionally don't initialize the buffer's data store because it's dynamically created
+    // when the chunk is invalidated
 
     gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
     (vao, vbo)
@@ -76,7 +77,7 @@ pub struct Chunk {
     // When a chunk is dirty, its VBO needs to be recreated to match the blocks array
     pub dirty: bool,
     // Changes to the outer blocks of the chunk lead to dirty nearby chunks
-    pub dirty_neighbours: HashSet<(i32, i32, i32)>
+    pub dirty_neighbours: HashSet<(i32, i32, i32)>,
 }
 
 impl Chunk {

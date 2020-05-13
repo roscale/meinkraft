@@ -5,7 +5,7 @@ use crate::{UVCoords, UVFaces};
 // Creates and write the vertices of a cube directly into "ptr" (usually a VBO mapped to virtual memory)
 pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
                                      (front_uv, back_uv, top_uv, bottom_uv, left_uv, right_uv): UVFaces,
-                                     (right, left, top, bottom, front, back): (bool, bool, bool, bool, bool, bool)) -> u32 {
+                                     [right, left, top, bottom, front, back]: [bool; 6]) -> u32 {
     let vertex_size = 5;
     let vertices_per_face = 6;
     let face_size = vertex_size * vertices_per_face;
