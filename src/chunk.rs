@@ -19,6 +19,8 @@ pub enum BlockID {
     OakLeaves,
     Urss,
     Hitler,
+    Debug,
+    Debug2,
 }
 
 impl BlockID {
