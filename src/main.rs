@@ -266,9 +266,10 @@ fn main() {
 
                 glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
                     let player = physics_manager.get_current_state();
-
-                    player.velocity.y = 10.0;
-                }
+                    if player.velocity.y == 0 {
+                      player.velocity.y = 10.0;
+                  }
+                 }
 
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
