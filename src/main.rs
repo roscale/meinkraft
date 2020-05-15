@@ -281,7 +281,9 @@ fn main() {
                 }
 
                 glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
-                    player.velocity.y = 0.05;
+                    if(player.velocity.y == 0.0) {
+                        player.velocity.y = 0.07; 
+                    }
                 }
 
                 glfw::WindowEvent::Key(key, _, action, _) => {
