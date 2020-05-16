@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::c_void;
@@ -20,6 +23,7 @@ use crate::shader_compilation::{ShaderPart, ShaderProgram};
 use crate::util::forward;
 use crate::physics::{PhysicsManager, PlayerPhysicsState};
 use crate::aabb::AABB;
+use crate::constants::*;
 
 #[macro_use]
 pub mod debugging;
@@ -33,6 +37,7 @@ pub mod raycast;
 pub mod block_texture_faces;
 pub mod physics;
 pub mod aabb;
+pub mod constants;
 
 type UVCoords = (f32, f32, f32, f32);
 type UVFaces = (UVCoords, UVCoords, UVCoords, UVCoords, UVCoords, UVCoords);
@@ -63,12 +68,6 @@ impl InputCache {
     }
 }
 
-const PLAYER_WIDTH: f32 = 0.6;
-const PLAYER_HEIGHT: f32 = 1.8;
-const PLAYER_EYES_HEIGHT: f32 = 1.6;
-const PLAYER_HALF_WIDTH: f32 = PLAYER_WIDTH / 2.0;
-const PLAYER_HALF_HEIGHT: f32 = PLAYER_HEIGHT / 2.0;
-
 struct PlayerRenderState {
     pub rotation: Vec3
 }
@@ -89,15 +88,12 @@ impl PlayerRenderState {
 
 fn main() {
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(WindowHint::ContextVersionMajor(4));
-    glfw.window_hint(WindowHint::ContextVersionMinor(6));
+    glfw.window_hint(WindowHint::ContextVersionMajor(OPENGL_MAJOR_VERSION));
+    glfw.window_hint(WindowHint::ContextVersionMinor(OPENGL_MINOR_VERSION));
     glfw.window_hint(WindowHint::OpenGlProfile(OpenGlProfileHint::Core));
     glfw.window_hint(WindowHint::OpenGlDebugContext(true));
 
-    let window_size = (800, 800);
-    let window_title = "Meinkraft";
-
-    let (mut window, events) = glfw.create_window(window_size.0, window_size.1, window_title, glfw::WindowMode::Windowed)
+    let (mut window, events) = glfw.create_window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_NAME, glfw::WindowMode::Windowed)
         .expect("Failed to create GLFW window.");
 
     // Make the window's context current
@@ -107,9 +103,9 @@ fn main() {
     window.set_raw_mouse_motion(true);
     window.set_mouse_button_polling(true);
     window.set_cursor_mode(CursorMode::Disabled);
-    window.set_cursor_pos(400.0, 400.0);
 
     gl::load_with(|s| window.get_proc_address(s) as *const _);
+
     // Uncomment the following line to disable V-SYNC
     // unsafe { glfwSwapInterval(0) };
 
@@ -127,12 +123,12 @@ fn main() {
     gl_call!(gl::Enable(gl::BLEND));
     gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
 
-    gl_call!(gl::Viewport(0, 0, 800, 800));
+    gl_call!(gl::Viewport(0, 0, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32));
 
     let mut player_render_state = PlayerRenderState::new();
     let mut physics_manager = PhysicsManager::new(
-        1.0 / 60.0, // Tickrate of 60
-        PlayerPhysicsState::new_at_position(vec3(0.0f32, 30.0, 0.0))
+        1.0 / PHYSICS_TICKRATE,
+        PlayerPhysicsState::new_at_position(vec3(0.0f32, 30.0, 0.0)),
     );
 
     let vert = ShaderPart::from_vert_source(
@@ -169,7 +165,7 @@ fn main() {
     gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
     gl_call!(gl::TextureParameteri(atlas, gl::TEXTURE_MIN_FILTER, gl::NEAREST_MIPMAP_NEAREST as i32));
     gl_call!(gl::TextureParameteri(atlas, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32));
-    gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, 1024, 1024)); // Big enough to contain all the textures
+    gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, TEXTURE_ATLAS_SIZE as i32, TEXTURE_ATLAS_SIZE as i32));
 
     let load_image = |texture_path: &str| {
         let img = image::open(texture_path);
@@ -190,21 +186,25 @@ fn main() {
         let (dest_x, dest_y) = (x, y);
         gl_call!(gl::TextureSubImage2D(
             atlas, 0,
-            dest_x, dest_y, img.width() as i32, img.height() as i32,
+            dest_x as i32, dest_y as i32, img.width() as i32, img.height() as i32,
             gl::RGBA, gl::UNSIGNED_BYTE,
             img.raw_pixels().as_ptr() as *mut c_void));
 
         // Left to right, bottom to top
-        x += 16;
-        if x >= 1024 {
+        x += BLOCK_TEXTURE_SIZE;
+        if x >= TEXTURE_ATLAS_SIZE {
             x = 0;
-            y += 16;
+            y += BLOCK_TEXTURE_SIZE;
         }
 
         let dest_x = dest_x as f32;
         let dest_y = dest_y as f32;
+
         // Coordinates must be between 0.0 and 1.0 (percentage)
-        (dest_x / 1024.0, dest_y / 1024.0, (dest_x + 16.0) / 1024.0, (dest_y + 16.0) / 1024.0)
+        (dest_x / TEXTURE_ATLAS_SIZE as f32,
+         dest_y / TEXTURE_ATLAS_SIZE as f32,
+         (dest_x + BLOCK_TEXTURE_SIZE as f32) / TEXTURE_ATLAS_SIZE as f32,
+         (dest_y + BLOCK_TEXTURE_SIZE as f32) / TEXTURE_ATLAS_SIZE as f32)
     };
 
     // Load all the images and fill the UV map for all the blocks
@@ -256,8 +256,8 @@ fn main() {
                     let rel_y = y - past_cursor_pos.1;
 
                     // dbg!(rel_x, rel_y);
-                    player_render_state.rotation.y += rel_x as f32 / 100.0;
-                    player_render_state.rotation.x -= rel_y as f32 / 100.0;
+                    player_render_state.rotation.y += rel_x as f32 / 100.0 * MOUSE_SENSITIVITY_X;
+                    player_render_state.rotation.x -= rel_y as f32 / 100.0 * MOUSE_SENSITIVITY_Y;
 
                     player_render_state.rotation.x = clamp(player_render_state.rotation.x, -pi::<f32>() / 2.0 + 0.0001, pi::<f32>() / 2.0 - 0.0001);
 
@@ -273,8 +273,6 @@ fn main() {
                 }
 
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
-                    let reach_distance = 400.0;
-
                     let fw = forward(&player_render_state.rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
                         chunk_manager.get_block(x, y, z)
@@ -282,7 +280,7 @@ fn main() {
                             .and_then(|_| Some((x, y, z)))
                     };
 
-                    let hit = raycast::raycast(&get_voxel, &player.get_camera_position(), &fw.normalize(), reach_distance);
+                    let hit = raycast::raycast(&get_voxel, &player.get_camera_position(), &fw.normalize(), REACH_DISTANCE);
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
                             chunk_manager.set_block(BlockID::Air, x, y, z);
@@ -318,7 +316,7 @@ fn main() {
 
             if input_cache.is_key_pressed(Key::Space) {
                 if player.is_on_ground {
-                    player.velocity.y = (56.0f32 * 1.3).sqrt();
+                    player.velocity.y = *JUMP_IMPULSE; // TODO
                 }
             }
 
@@ -340,28 +338,25 @@ fn main() {
                 directional_acceleration += forward(&rotation).cross(&Vector3::y())
             }
 
-            let multiplier = 30.0f32;
-
             if directional_acceleration.norm_squared() != 0.0 {
-                let directional_acceleration = directional_acceleration.normalize().scale(multiplier);
+                let directional_acceleration = directional_acceleration.normalize().scale(HORIZONTAL_ACCELERATION);
                 player.acceleration = directional_acceleration;
             }
 
-            player.acceleration.y = -28.0;
+            player.acceleration.y = GRAVITY;
             player.velocity += player.acceleration * dt;
 
             let mut horizontal = vec2(player.velocity.x, player.velocity.z);
 
             let mag = horizontal.magnitude();
-            let walking_speed = 4.317f32;
-            if mag > walking_speed  {
-                horizontal = horizontal.scale(walking_speed / mag);
+            if mag > WALKING_SPEED {
+                horizontal = horizontal.scale(WALKING_SPEED / mag);
             }
 
             // Vertical
             // https://www.planetminecraft.com/blog/the-acceleration-of-gravity-in-minecraft-and-terminal-velocity/
-            if player.velocity.y < -90.0 {
-                player.velocity.y = -90.0;
+            if player.velocity.y < -MAX_VERTICAL_VELOCITY {
+                player.velocity.y = -MAX_VERTICAL_VELOCITY;
             }
 
             player.velocity.x = horizontal.x;
@@ -457,17 +452,17 @@ fn main() {
             // dbg!(player.position.y);
             player.is_on_ground = is_player_on_ground;
 
-            let drag_percent = if is_player_on_ground {
-                12.0
+            let friction = if is_player_on_ground {
+                ON_GROUND_FRICTION
             } else {
-                2.0
+                IN_AIR_FRICTION
             };
 
             if player.acceleration.x.is_zero() || player.acceleration.x.signum() != player.velocity.x.signum() {
-                player.velocity.x -= drag_percent * player.velocity.x * dt;
+                player.velocity.x -= friction * player.velocity.x * dt;
             }
             if player.acceleration.z.is_zero() || player.acceleration.z.signum() != player.velocity.z.signum() {
-                player.velocity.z -= drag_percent * player.velocity.z * dt;
+                player.velocity.z -= friction * player.velocity.z * dt;
             }
 
             player.acceleration.x = 0.0;
@@ -482,7 +477,7 @@ fn main() {
         let direction = forward(&player_render_state.rotation);
         let camera_position = player.get_camera_position();
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
-        let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
+        let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, NEAR_PLANE, FAR_PLANE);
 
         chunk_manager.rebuild_dirty_chunks(&uv_map);
 
@@ -492,7 +487,8 @@ fn main() {
         program.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
         program.set_uniform1i("tex", 0); // The texture atlas
 
-        gl_call!(gl::ClearColor(0.74, 0.84, 1.0, 1.0));
+        let (r, g, b, a) = BACKGROUND_COLOR;
+        gl_call!(gl::ClearColor(r, g, b, a));
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 
         chunk_manager.render_loaded_chunks(&mut program);
