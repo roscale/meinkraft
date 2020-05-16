@@ -24,6 +24,7 @@ pub struct PlayerPhysicsState {
     pub aabb: AABB,
     pub velocity: Vec3,
     pub acceleration: Vec3,
+    pub is_on_ground: bool,
 }
 
 impl PlayerPhysicsState {
@@ -37,6 +38,7 @@ impl PlayerPhysicsState {
             },
             velocity: vec3(0.0, 0.0, 0.0),
             acceleration: vec3(0.0, 0.0, 0.0),
+            is_on_ground: false,
         }
     }
 

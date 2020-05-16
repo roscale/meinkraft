@@ -8,7 +8,7 @@ use glfw::MouseButton::Button1;
 use glfw::WindowEvent::Pos;
 use image::{DynamicImage, GenericImageView};
 use nalgebra::{clamp, Matrix4, Vector3, Point3};
-use nalgebra_glm::{IVec3, Mat4, pi, proj, Vec2, vec2, Vec3, vec3};
+use nalgebra_glm::{IVec3, Mat4, pi, proj, Vec2, vec2, Vec3, vec3, vec3_to_vec2};
 use rand::random;
 use std::time;
 
@@ -110,7 +110,11 @@ fn main() {
     window.set_cursor_pos(400.0, 400.0);
 
     gl::load_with(|s| window.get_proc_address(s) as *const _);
-    unsafe { glfwSwapInterval(0) };
+    // Uncomment the following line to disable V-SYNC
+    // unsafe { glfwSwapInterval(0) };
+
+    // TODO implement an artificial FPS limiter instead of using V-SYNC because
+    // it introduces annoying input lag
 
     gl_call!(gl::Enable(gl::DEBUG_OUTPUT));
     gl_call!(gl::Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS));
@@ -264,13 +268,6 @@ fn main() {
                     window.set_should_close(true);
                 }
 
-                glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
-                    let player = physics_manager.get_current_state();
-                    if player.velocity.y == 0 {
-                      player.velocity.y = 10.0;
-                  }
-                 }
-
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
                 }
@@ -291,10 +288,11 @@ fn main() {
                             chunk_manager.set_block(BlockID::Air, x, y, z);
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-
-                            // TODO implement Hotbar
-                            chunk_manager.set_block(BlockID::Debug2, near.x, near.y, near.z);
-                            println!("Put block at {} {} {}", near.x, near.y, near.z);
+                            if !player.aabb.intersects(&get_block_aabb(&vec3(near.x as f32, near.y as f32, near.z as f32))) {
+                                // TODO implement Hotbar
+                                chunk_manager.set_block(BlockID::Debug2, near.x, near.y, near.z);
+                                println!("Put block at {} {} {}", near.x, near.y, near.z);
+                            }
                         }
 
                         println!("HIT {} {} {}", x, y, z);
@@ -307,38 +305,9 @@ fn main() {
             }
         }
 
-        // TODO use deltatime
-        let multiplier = 5.0f32;
-
         let mut rotation = player_render_state.rotation;
         rotation.x = 0.0;
         let player = physics_manager.get_current_state();
-
-        if input_cache.is_key_pressed(Key::W) {
-            player.acceleration += forward(&rotation).scale(multiplier);
-        }
-
-        if input_cache.is_key_pressed(Key::S) {
-            player.acceleration += -forward(&rotation).scale(multiplier);
-        }
-
-        if input_cache.is_key_pressed(Key::A) {
-            player.acceleration += -forward(&rotation).cross(&Vector3::y()).normalize().scale(multiplier);
-        }
-
-        if input_cache.is_key_pressed(Key::D) {
-            player.acceleration += forward(&rotation).cross(&Vector3::y()).normalize().scale(multiplier);
-        }
-
-        // if input_cache.is_key_pressed(Key::Q) {
-        //     player.velocity.y += multiplier;
-        // }
-        //
-        // if input_cache.is_key_pressed(Key::Z) {
-        //     player.velocity.y -= multiplier;
-        // }
-
-
 
         use crate::physics::get_block_aabb;
         use num_traits::identities::Zero;
@@ -346,13 +315,60 @@ fn main() {
         // physics_manager.current_state = player_to_physics_state(&player);
         let render_state = physics_manager.step(&|mut previous_state: PlayerPhysicsState, t: f32, dt: f32| {
             let player = &mut previous_state;
-            // println!("HMM");
-            player.acceleration.y = -32.0 ;
+
+            if input_cache.is_key_pressed(Key::Space) {
+                if player.is_on_ground {
+                    player.velocity.y = (56.0f32 * 1.3).sqrt();
+                }
+            }
+
+            let mut directional_acceleration = vec3(0.0, 0.0, 0.0);
+
+            if input_cache.is_key_pressed(Key::W) {
+                directional_acceleration += forward(&rotation)
+            }
+
+            if input_cache.is_key_pressed(Key::S) {
+                directional_acceleration += -forward(&rotation)
+            }
+
+            if input_cache.is_key_pressed(Key::A) {
+                directional_acceleration += -forward(&rotation).cross(&Vector3::y())
+            }
+
+            if input_cache.is_key_pressed(Key::D) {
+                directional_acceleration += forward(&rotation).cross(&Vector3::y())
+            }
+
+            let multiplier = 30.0f32;
+
+            if directional_acceleration.norm_squared() != 0.0 {
+                let directional_acceleration = directional_acceleration.normalize().scale(multiplier);
+                player.acceleration = directional_acceleration;
+            }
+
+            player.acceleration.y = -28.0;
             player.velocity += player.acceleration * dt;
-            let mag = player.velocity.magnitude();
-            // if player.velocity.magnitude() > 0.1 {
-            //     player.velocity = player.velocity.unscale(mag).scale(0.1)
-            // }
+
+            let mut horizontal = vec2(player.velocity.x, player.velocity.z);
+
+            let mag = horizontal.magnitude();
+            let walking_speed = 4.317f32;
+            if mag > walking_speed  {
+                horizontal = horizontal.scale(walking_speed / mag);
+            }
+
+            // Vertical
+            // https://www.planetminecraft.com/blog/the-acceleration-of-gravity-in-minecraft-and-terminal-velocity/
+            if player.velocity.y < -90.0 {
+                player.velocity.y = -90.0;
+            }
+
+            player.velocity.x = horizontal.x;
+            player.velocity.z = horizontal.y;
+
+
+            let mut is_player_on_ground = false;
 
             let separated_axis = &[
                 vec3(player.velocity.x, 0.0, 0.0),
@@ -411,6 +427,7 @@ fn main() {
                             player.aabb = AABB::new(
                                 vec3(player.aabb.mins.x, block_aabb.maxs.y, player.aabb.mins.z),
                                 vec3(player.aabb.maxs.x, block_aabb.maxs.y + PLAYER_HEIGHT, player.aabb.maxs.z));
+                            is_player_on_ground = true;
                         } else {
                             player.aabb = AABB::new(
                                 vec3(player.aabb.mins.x, block_aabb.mins.y - PLAYER_HEIGHT, player.aabb.mins.z),
@@ -437,16 +454,27 @@ fn main() {
             player.position.y = player.aabb.mins.y;
             player.position.z = player.aabb.mins.z + PLAYER_HALF_WIDTH;
 
-            player.velocity.x *= 0.96;
-            player.velocity.z *= 0.96;
+            // dbg!(player.position.y);
+            player.is_on_ground = is_player_on_ground;
+
+            let drag_percent = if is_player_on_ground {
+                12.0
+            } else {
+                2.0
+            };
+
+            if player.acceleration.x.is_zero() || player.acceleration.x.signum() != player.velocity.x.signum() {
+                player.velocity.x -= drag_percent * player.velocity.x * dt;
+            }
+            if player.acceleration.z.is_zero() || player.acceleration.z.signum() != player.velocity.z.signum() {
+                player.velocity.z -= drag_percent * player.velocity.z * dt;
+            }
+
             player.acceleration.x = 0.0;
             player.acceleration.y = 0.0;
             player.acceleration.z = 0.0;
             previous_state
         });
-
-
-
 
 
         let player = &render_state;
@@ -468,38 +496,6 @@ fn main() {
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 
         chunk_manager.render_loaded_chunks(&mut program);
-        // player.velocity.x *= 0.01;
-        // player.velocity.z *= 0.01;
-
-
-
-
-        // let rotation = player_render_state.rotation;
-        // player = render_state;
-        // player.rotation = rotation;
-
-        // player.velocity = player.velocity;
-        // player.acceleration = player.acceleration;
-        // player.aabb.mins = player.aabb.mins;
-        // player.aabb.maxs = player.aabb.maxs;
-        // player.position = player.position;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        // player_collision_detection(&mut player, &chunk_manager);
-
-
         window.swap_buffers();
     }
 }
