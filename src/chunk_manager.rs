@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use crate::chunk::{Chunk, BlockID};
+use crate::chunk::{Chunk, BlockID, BlockIterator};
 use nalgebra_glm::{Mat4, vec3};
 use crate::shader_compilation::ShaderProgram;
 use nalgebra::Matrix4;
@@ -173,14 +173,12 @@ impl ChunkManager {
             let chunk = self.loaded_chunks.get(&coords);
             if let Some(chunk) = chunk {
                 let active_faces_vec = active_faces.entry(coords).or_default();
-                for b_y in 0..CHUNK_SIZE {
-                    for b_z in 0..CHUNK_SIZE {
-                        for b_x in 0..CHUNK_SIZE {
-                            if !chunk.get_block(b_x, b_y, b_z).is_air() {
-                                let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-                                active_faces_vec.push(self.get_active_faces_of_block(g_x, g_y, g_z))
-                            }
-                        }
+
+                for (b_x, b_y, b_z) in BlockIterator::new() {
+                    let block = chunk.get_block(b_x, b_y, b_z);
+                    if !block.is_air() {
+                        let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+                        active_faces_vec.push(self.get_active_faces_of_block(g_x, g_y, g_z))
                     }
                 }
             }
@@ -217,25 +215,22 @@ impl ChunkManager {
                 let sides_vec = active_faces.get(&chunk_coords).unwrap();
                 let mut j = 0;
 
-                for y in 0..CHUNK_SIZE {
-                    for z in 0..CHUNK_SIZE {
-                        for x in 0..CHUNK_SIZE {
-                            let block = chunk.get_block(x, y, z);
-                            if block != BlockID::Air {
-                                let active_sides = sides_vec[j];
+                for (x, y, z) in BlockIterator::new() {
+                    let block = chunk.get_block(x, y, z);
+                    if block != BlockID::Air {
+                        let active_sides = sides_vec[j];
 
-                                let uvs = uv_map.get(&block).unwrap().clone();
-                                let uvs = get_uv_every_side(uvs);
+                        let uvs = uv_map.get(&block).unwrap().clone();
+                        let uvs = get_uv_every_side(uvs);
 
-                                let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides) };
-                                // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
-                                // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
-                                chunk.vertices_drawn += copied_vertices;
-                                vbo_offset += copied_vertices as isize * 5; // 5 floats per vertex
-                                j += 1;
-                            }
-                        }
+                        let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides) };
+                        // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
+                        // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
+                        chunk.vertices_drawn += copied_vertices;
+                        vbo_offset += copied_vertices as isize * 5; // 5 floats per vertex
+                        j += 1;
                     }
+
                 }
                 gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
             }
