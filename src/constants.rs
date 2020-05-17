@@ -21,6 +21,7 @@ pub const MAX_VERTICAL_VELOCITY: f32 = 90.0;
 pub const TEXTURE_ATLAS_SIZE: u32 = 1024;
 pub const BLOCK_TEXTURE_SIZE: u32 = 16;
 
+// Some values are taken from the minecraft gamepedia
 // Player
 pub const PLAYER_WIDTH: f32 = 0.6;
 pub const PLAYER_HEIGHT: f32 = 1.8;

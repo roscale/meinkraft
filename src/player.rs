@@ -99,24 +99,24 @@ impl PlayerPhysicsState {
             }
         }
         // Walk
-        let mut directional_acceleration = vec3(0.0, 0.0, 0.0);
+        let mut horizontal_acceleration = vec3(0.0, 0.0, 0.0);
 
         if input_cache.is_key_pressed(Key::W) {
-            directional_acceleration += -rotation.forward().cross(&Vector3::y()).cross(&Vector3::y())
+            horizontal_acceleration += -rotation.forward().cross(&Vector3::y()).cross(&Vector3::y())
         }
         if input_cache.is_key_pressed(Key::S) {
-            directional_acceleration += rotation.forward().cross(&Vector3::y()).cross(&Vector3::y())
+            horizontal_acceleration += rotation.forward().cross(&Vector3::y()).cross(&Vector3::y())
         }
         if input_cache.is_key_pressed(Key::A) {
-            directional_acceleration += -rotation.forward().cross(&Vector3::y())
+            horizontal_acceleration += -rotation.forward().cross(&Vector3::y())
         }
         if input_cache.is_key_pressed(Key::D) {
-            directional_acceleration += rotation.forward().cross(&Vector3::y())
+            horizontal_acceleration += rotation.forward().cross(&Vector3::y())
         }
 
-        if directional_acceleration.norm_squared() != 0.0 {
-            let directional_acceleration = directional_acceleration.normalize().scale(HORIZONTAL_ACCELERATION);
-            self.acceleration += directional_acceleration;
+        if horizontal_acceleration.norm_squared() != 0.0 {
+            let horizontal_acceleration = horizontal_acceleration.normalize().scale(HORIZONTAL_ACCELERATION);
+            self.acceleration += horizontal_acceleration;
         }
     }
 
@@ -131,6 +131,7 @@ impl PlayerPhysicsState {
             player_maxs.x.floor() as i32, player_maxs.y.floor() as i32, player_maxs.z.floor() as i32,
         );
 
+        // We query all the blocks around the player to check whether it's colliding with one of them
         let mut colliding_block = None;
         for y in block_mins.y..=block_maxs.y {
             for z in block_mins.z..=block_maxs.z {
@@ -156,6 +157,8 @@ impl PlayerPhysicsState {
 
         if !v.x.is_zero() {
             if v.x < 0.0 {
+                // I've opted to create a new AABB instead of translating the old one
+                // because of the imprecision of floats.
                 self.aabb = AABB::new(
                     vec3(block_aabb.maxs.x, self.aabb.mins.y, self.aabb.mins.z),
                     vec3(block_aabb.maxs.x + PLAYER_WIDTH, self.aabb.maxs.y, self.aabb.maxs.z));
@@ -203,6 +206,8 @@ impl PlayerPhysicsState {
             IN_AIR_FRICTION
         };
 
+        // We apply friction if the player is either slowing down (a = 0) or
+        // walks in the opposite direction
         if self.acceleration.x.is_zero() || self.acceleration.x.signum() != self.velocity.x.signum() {
             self.velocity.x -= friction * self.velocity.x * dt;
         }

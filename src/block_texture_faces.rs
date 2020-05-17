@@ -7,7 +7,9 @@ pub enum BlockFaces<T> {
     Each { top: T, bottom: T, front: T, back: T, left: T, right: T },
 }
 
-pub fn get_uv_every_side(faces: BlockFaces<UVCoords>) -> UVFaces {
+/// Unpacks a BlockFaces<UVCoords> instance and returns a tuple of UV coordinates
+/// for each face of the block
+pub fn get_uv_of_every_face(faces: BlockFaces<UVCoords>) -> UVFaces {
     match faces {
         BlockFaces::All(uv) => (uv, uv, uv, uv, uv, uv),
         BlockFaces::Sides { sides, top, bottom } =>

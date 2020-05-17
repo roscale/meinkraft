@@ -6,7 +6,7 @@ use nalgebra::Matrix4;
 use std::borrow::Borrow;
 use crate::shapes::{write_unit_cube_to_ptr};
 use noise::{SuperSimplex, NoiseFn, Point2};
-use crate::block_texture_faces::{BlockFaces, get_uv_every_side};
+use crate::block_texture_faces::{BlockFaces, get_uv_of_every_face};
 use rand::random;
 use crate::types::{UVCoords};
 use std::ptr::null;
@@ -221,7 +221,7 @@ impl ChunkManager {
                         let active_sides = sides_vec[j];
 
                         let uvs = uv_map.get(&block).unwrap().clone();
-                        let uvs = get_uv_every_side(uvs);
+                        let uvs = get_uv_of_every_face(uvs);
 
                         let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides) };
                         // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);

@@ -79,6 +79,7 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    /// Returns the relative coordinates of nearby chunks whether they exist or not
     fn all_neighbours() -> HashSet<(i32, i32, i32)> {
         let mut hs = HashSet::new();
         hs.insert((1, 0, 0));
@@ -90,6 +91,7 @@ impl Chunk {
         hs
     }
 
+    /// Creates an empty chunk with no blocks
     pub fn empty() -> Chunk {
         let (vao, vbo) = create_vao_vbo();
 
@@ -103,6 +105,7 @@ impl Chunk {
         }
     }
 
+    /// Creates a chunk where every block is the same
     pub fn full_of_block(block: BlockID) -> Chunk {
         let (vao, vbo) = create_vao_vbo();
 
@@ -116,6 +119,7 @@ impl Chunk {
         }
     }
 
+    /// Creates a chunk where every block is random
     pub fn random() -> Chunk {
         let (vao, vbo) = create_vao_vbo();
 
@@ -135,17 +139,18 @@ impl Chunk {
         }
     }
 
-    // #[inline]
+    #[inline]
     fn coords_to_index(x: u32, y: u32, z: u32) -> usize {
         (y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x) as usize
     }
 
-    // #[inline]
+    #[inline]
     pub fn get_block(&self, x: u32, y: u32, z: u32) -> BlockID {
         self.blocks[Chunk::coords_to_index(x, y, z)]
     }
 
-    // #[inline]
+    /// Sets a block at some given coordinates
+    /// The coordinates must be within the chunk size
     pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
         self.blocks[Chunk::coords_to_index(x, y, z)] = block;
         self.dirty = true;

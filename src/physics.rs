@@ -8,10 +8,10 @@ use crate::constants::GRAVITY;
 use crate::input::InputCache;
 use crate::player::{PlayerPhysicsState, PlayerProperties};
 
-/*
-    Fixed timestep physics simulation using the following method
-    https://gafferongames.com/post/fix_your_timestep/
- */
+/// Fixed timestep physics simulation using the following method:
+/// https://gafferongames.com/post/fix_your_timestep/
+/// With this method, the physics are always deterministic and work independently
+/// of the performance of the game
 
 pub struct PhysicsManager {
     pub t: f32,
@@ -38,6 +38,7 @@ impl PhysicsManager {
         &mut self.current_state
     }
 
+    /// Advances the physics for a given state.
     pub fn step(&mut self, integrate: &dyn Fn(PlayerPhysicsState, f32, f32) -> PlayerPhysicsState) -> PlayerPhysicsState {
         let now = time::Instant::now();
         let mut frame_time = now.duration_since(self.current_time).as_secs_f32();
@@ -59,6 +60,7 @@ impl PhysicsManager {
         state
     }
 
+    /// Advances the physics for the player.
     pub fn update_player_physics(&mut self, input_cache: &InputCache, chunk_manager: &ChunkManager, player_properties: &PlayerProperties) -> PlayerPhysicsState {
         self.step(&|mut player: PlayerPhysicsState, _t: f32, dt: f32| {
             player.acceleration.y += GRAVITY;
@@ -67,7 +69,9 @@ impl PhysicsManager {
             player.apply_friction(dt);
             player.limit_velocity();
 
-            // Decompose the velocity vector into 3 vectors and do the collision detection and resolution for each of them
+            // We are using the Separated Axis Theorem
+            // We decompose the velocity vector into 3 vectors for each dimension
+            // For each one, we move the entity and do the collision detection/resolution
             let mut is_player_on_ground = false;
             let separated_axis = &[
                 vec3(player.velocity.x, 0.0, 0.0),
@@ -78,7 +82,7 @@ impl PhysicsManager {
                 player.aabb.ip_translate(&(v * dt));
                 let colliding_block = player.get_colliding_block_coords(&chunk_manager);
 
-                // Reaction
+                // Collision resolution
                 if let Some(colliding_block) = colliding_block {
                     is_player_on_ground |= player.separate_from_block(&v, &colliding_block);
                 }

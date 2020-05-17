@@ -1,5 +1,9 @@
 use nalgebra_glm::{Vec3, vec3};
 
+/// Axis Aligned Bounding Box
+/// A 3-dimensional box where all the faces are parallel to the axis
+/// mins: the minimal corner of the box
+/// maxs: the opposite corner
 #[derive(Debug, Copy, Clone)]
 pub struct AABB {
     pub mins: Vec3,
@@ -16,6 +20,7 @@ impl AABB {
         self.maxs += translation;
     }
 
+    /// Checks whether this AABB is intersecting another one
     pub fn intersects(&self, other: &AABB) -> bool {
         (self.mins.x < other.maxs.x && self.maxs.x > other.mins.x) &&
             (self.mins.y < other.maxs.y && self.maxs.y > other.mins.y) &&
@@ -23,6 +28,7 @@ impl AABB {
     }
 }
 
+/// Creates an AABB box at mins with a length of 1 in every dimension
 pub fn get_block_aabb(mins: &Vec3) -> AABB {
     AABB::new(
         mins.clone(),
