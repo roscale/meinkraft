@@ -1,77 +1,17 @@
-use crate::{PLAYER_HALF_WIDTH, PLAYER_WIDTH, PLAYER_HEIGHT, PLAYER_EYES_HEIGHT};
-use crate::chunk_manager::ChunkManager;
-use num_traits::real::Real;
-use ncollide3d::math::Point;
-use nalgebra_glm::{vec3, Vec3};
-use crate::chunk::BlockID;
-use num_traits::Zero;
-use std::process::exit;
-use crate::aabb::AABB;
-use std::collections::HashMap;
 use std::time;
-use std::ops::{Mul, Add};
-use itertools::zip;
+
+use nalgebra_glm::vec3;
+
+use crate::PLAYER_HALF_WIDTH;
+use crate::chunk_manager::ChunkManager;
+use crate::constants::GRAVITY;
+use crate::input::InputCache;
+use crate::player::{PlayerPhysicsState, PlayerProperties};
 
 /*
-    Implementing fixed timestep physics simulation using the following method
+    Fixed timestep physics simulation using the following method
     https://gafferongames.com/post/fix_your_timestep/
  */
-
-
-#[derive(Clone)]
-pub struct PlayerPhysicsState {
-    pub position: Vec3,
-    pub aabb: AABB,
-    pub velocity: Vec3,
-    pub acceleration: Vec3,
-    pub is_on_ground: bool,
-}
-
-impl PlayerPhysicsState {
-    pub fn new_at_position(position: Vec3) -> Self {
-        PlayerPhysicsState {
-            position,
-            aabb: {
-                let mins = vec3(position.x - PLAYER_HALF_WIDTH, position.y, position.z - PLAYER_HALF_WIDTH);
-                let maxs = vec3(position.x + PLAYER_HALF_WIDTH, position.y + PLAYER_HEIGHT, position.z + PLAYER_HALF_WIDTH);
-                AABB::new(mins, maxs)
-            },
-            velocity: vec3(0.0, 0.0, 0.0),
-            acceleration: vec3(0.0, 0.0, 0.0),
-            is_on_ground: false,
-        }
-    }
-
-    pub fn get_camera_position(&self) -> Vec3 {
-        self.position + vec3(0.0, PLAYER_EYES_HEIGHT, 0.0)
-    }
-}
-
-impl Mul<f32> for PlayerPhysicsState {
-    type Output = PlayerPhysicsState;
-
-    fn mul(mut self, rhs: f32) -> Self::Output {
-        self.position *= rhs;
-        self.acceleration *= rhs;
-        self.velocity *= rhs;
-        self.aabb.maxs *= rhs;
-        self.aabb.mins *= rhs;
-        self
-    }
-}
-
-impl Add for PlayerPhysicsState {
-    type Output = PlayerPhysicsState;
-
-    fn add(mut self, mut rhs: Self) -> Self::Output {
-        self.position += rhs.position;
-        self.acceleration += rhs.acceleration;
-        self.velocity += rhs.velocity;
-        self.aabb.maxs += rhs.aabb.maxs;
-        self.aabb.mins += rhs.aabb.mins;
-        self
-    }
-}
 
 pub struct PhysicsManager {
     pub t: f32,
@@ -92,6 +32,10 @@ impl PhysicsManager {
             previous_state: initial_state.clone(),
             current_state: initial_state,
         }
+    }
+
+    pub fn get_current_state(&mut self) -> &mut PlayerPhysicsState {
+        &mut self.current_state
     }
 
     pub fn step(&mut self, integrate: &dyn Fn(PlayerPhysicsState, f32, f32) -> PlayerPhysicsState) -> PlayerPhysicsState {
@@ -115,17 +59,41 @@ impl PhysicsManager {
         state
     }
 
-    pub fn get_current_state(&mut self) -> &mut PlayerPhysicsState {
-        &mut self.current_state
+    pub fn update_player_physics(&mut self, input_cache: &InputCache, chunk_manager: &ChunkManager, player_properties: &PlayerProperties) -> PlayerPhysicsState {
+        self.step(&|mut player: PlayerPhysicsState, _t: f32, dt: f32| {
+            player.acceleration.y += GRAVITY;
+            player.apply_keyboard_mouvement(&player_properties.rotation, &input_cache);
+            player.velocity += player.acceleration * dt;
+            player.apply_friction(dt);
+            player.limit_velocity();
+
+            // Decompose the velocity vector into 3 vectors and do the collision detection and resolution for each of them
+            let mut is_player_on_ground = false;
+            let separated_axis = &[
+                vec3(player.velocity.x, 0.0, 0.0),
+                vec3(0.0, player.velocity.y, 0.0),
+                vec3(0.0, 0.0, player.velocity.z)];
+
+            for v in separated_axis {
+                player.aabb.ip_translate(&(v * dt));
+                let colliding_block = player.get_colliding_block_coords(&chunk_manager);
+
+                // Reaction
+                if let Some(colliding_block) = colliding_block {
+                    is_player_on_ground |= player.separate_from_block(&v, &colliding_block);
+                }
+            }
+            player.is_on_ground = is_player_on_ground;
+
+            // Update the position of the player and reset the acceleration
+            player.position.x = player.aabb.mins.x + PLAYER_HALF_WIDTH;
+            player.position.y = player.aabb.mins.y;
+            player.position.z = player.aabb.mins.z + PLAYER_HALF_WIDTH;
+
+            player.acceleration.x = 0.0;
+            player.acceleration.y = 0.0;
+            player.acceleration.z = 0.0;
+            player
+        })
     }
 }
-
-pub fn get_block_aabb(mins: &Vec3) -> AABB {
-    AABB::new(
-        mins.clone(),
-        mins + vec3(1.0, 1.0, 1.0))
-}
-
-// pub fn update_player_physics(chunk_manager: &ChunkManager) -> Box<dyn Fn(PlayerPhysicsState, f32, f32) -> PlayerPhysicsState> {
-//     Box::new()
-// }

@@ -2,24 +2,18 @@ use std::collections::{HashMap, HashSet};
 use crate::chunk::{Chunk, BlockID};
 use nalgebra_glm::{Mat4, vec3};
 use crate::shader_compilation::ShaderProgram;
-use nalgebra::{Vector3, Matrix4, clamp};
-use std::ops::Mul;
+use nalgebra::Matrix4;
 use std::borrow::Borrow;
-use std::hash::Hash;
 use crate::shapes::{write_unit_cube_to_ptr};
-use std::os::raw::c_void;
-use std::cell::RefCell;
-use noise::{SuperSimplex, NoiseFn, Point3, Point2};
+use noise::{SuperSimplex, NoiseFn, Point2};
 use crate::block_texture_faces::{BlockFaces, get_uv_every_side};
 use rand::random;
-use crate::UVCoords;
+use crate::types::{UVCoords};
 use std::ptr::null;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 pub const CUBE_SIZE: u32 = 180;
-
-type Sides = [bool; 6];
 
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
@@ -32,21 +26,7 @@ impl ChunkManager {
         }
     }
 
-    pub fn preload_some_chunks(&mut self) {
-        for y in 0..2 {
-            for z in 0..2 {
-                for x in 0..2 {
-                    self.loaded_chunks.insert((x, y, z), Chunk::random());
-                }
-            }
-        }
-    }
-
-    pub fn single(&mut self) {
-        self.loaded_chunks.insert((0, 0, 0), Chunk::full_of_block(BlockID::Cobblestone));
-    }
-
-    pub fn simplex_noise(&mut self) {
+    pub fn generate_terrain(&mut self) {
         let n = 5;
 
         let ss = SuperSimplex::new();
@@ -106,6 +86,20 @@ impl ChunkManager {
         }
     }
 
+    pub fn preload_some_chunks(&mut self) {
+        for y in 0..2 {
+            for z in 0..2 {
+                for x in 0..2 {
+                    self.loaded_chunks.insert((x, y, z), Chunk::random());
+                }
+            }
+        }
+    }
+
+    pub fn single(&mut self) {
+        self.loaded_chunks.insert((0, 0, 0), Chunk::full_of_block(BlockID::Cobblestone));
+    }
+
     // Transform global block coordinates into chunk local coordinates
     fn get_chunk_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
         let chunk_x = if x < 0 { (x + 1) / 16 - 1 } else { x / 16 };
@@ -145,6 +139,12 @@ impl ChunkManager {
         });
     }
 
+    pub fn is_solid_block_at(&self, x: i32, y: i32, z: i32) -> bool {
+        self.get_block(x, y, z)
+            .filter(|&block| block != BlockID::Air)
+            .is_some()
+    }
+
     // uv_map: the UV coordinates of all the block's faces
     // UV coordinates are composed of 4 floats, the first 2 are the bottom left corner and the last 2 are the top right corner (all between 0.0 and 1.0)
     // These specify the subtexture to use when rendering
@@ -166,6 +166,7 @@ impl ChunkManager {
                 If 2 solid blocks are touching, don't render the faces where they touch.
                 Render only the faces that are next to a transparent block (AIR for example)
          */
+        type Sides = [bool; 6];
         let mut active_faces: HashMap<(i32, i32, i32), Vec<Sides>> = HashMap::new();
         for &coords in &dirty_chunks {
             let (c_x, c_y, c_z) = coords;

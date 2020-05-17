@@ -102,7 +102,7 @@ impl Renderer2D {
     }
 
     pub fn end_batch(&mut self, program: &mut ShaderProgram) {
-        let mut draw_calls = 0;
+        let mut _draw_calls = 0;
 
         // TODO: Handle quads without textures
 
@@ -154,7 +154,7 @@ impl Renderer2D {
 
             gl_call!(gl::BindVertexArray(self.vao));
             gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, (self.vertices.len() / 6) as i32));
-            draw_calls += 1;
+            _draw_calls += 1;
         }
 //        println!("Total draw calls: {}", draw_calls);
     }

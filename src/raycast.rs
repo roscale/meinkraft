@@ -1,14 +1,12 @@
 // Algorithm translated from https://github.com/andyhall/fast-voxel-raycast
 // Paper: http://www.cse.chalmers.se/edu/year/2010/course/TDA361/grid.pdf
 
-use nalgebra_glm::{Vec3, floor, I32Vec3, IVec3};
-use itertools::izip;
-use nalgebra::Vector3;
+use nalgebra_glm::{Vec3, floor, IVec3};
 use num_traits::float::FloatCore;
 
 // direction must be normalized
-pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
-              origin: &Vec3, direction: &Vec3, distance: f32) -> Option<(T, IVec3)> {
+pub fn raycast(is_solid_block_at: &dyn Fn(i32, i32, i32) -> bool,
+                  origin: &Vec3, direction: &Vec3, distance: f32) -> Option<((i32, i32, i32), IVec3)> {
 
     let mut t = 0.0f32;
     let mut i: IVec3 = floor(&origin).map(|x| x as i32);
@@ -29,14 +27,14 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
         }
     });
 
-    let mut hit_pos = Vec3::new(0.0, 0.0, 0.0);
+    let mut _hit_pos = Vec3::new(0.0, 0.0, 0.0);
     let mut hit_norm = IVec3::new(0, 0, 0);
 
     let mut stepped_index = -1;
     while t <= distance {
         // exit check
-        if let Some(voxel) = get_voxel(i.x, i.y, i.z) {
-            hit_pos = origin.zip_map(&direction, |p, d| p + t * d);
+        if is_solid_block_at(i.x, i.y, i.z) {
+            _hit_pos = origin.zip_map(&direction, |p, d| p + t * d);
             if stepped_index == 0 {
                 hit_norm[0] = -step.x;
             }
@@ -46,7 +44,7 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
             if stepped_index == 2 {
                 hit_norm[2] = -step.z;
             }
-            return Some((voxel, hit_norm));
+            return Some(((i.x, i.y, i.z), hit_norm));
         }
 
         // advance t to next nearest voxel boundary
@@ -78,6 +76,6 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
     }
 
     // no voxel hit found
-    hit_pos = origin.zip_map(&direction, |p, d| p + t * d);
+    _hit_pos = origin.zip_map(&direction, |p, d| p + t * d);
     return None;
 }

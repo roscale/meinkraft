@@ -1,5 +1,4 @@
-use nalgebra::{Scalar, Point3, DimAdd, Matrix};
-use nalgebra_glm::Vec3;
+use nalgebra_glm::{Vec3, vec3};
 
 #[derive(Debug, Copy, Clone)]
 pub struct AABB {
@@ -22,4 +21,10 @@ impl AABB {
             (self.mins.y < other.maxs.y && self.maxs.y > other.mins.y) &&
             (self.mins.z < other.maxs.z && self.maxs.z > other.mins.z)
     }
+}
+
+pub fn get_block_aabb(mins: &Vec3) -> AABB {
+    AABB::new(
+        mins.clone(),
+        mins + vec3(1.0, 1.0, 1.0))
 }

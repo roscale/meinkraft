@@ -1,4 +1,4 @@
-use crate::{UVCoords, UVFaces};
+use crate::types::UVFaces;
 
 // bl = bottom left
 // tr = top right
@@ -83,7 +83,6 @@ pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
             0.0 + x,  0.0 + y,  1.0 + z, bottom_uv.0, bottom_uv.3,
             0.0 + x,  0.0 + y,  0.0 + z, bottom_uv.0, bottom_uv.1,
         ].as_ptr(), face_size);
-        i += face_size as isize;
         copied_vertices += vertices_per_face;
     }
     copied_vertices as u32

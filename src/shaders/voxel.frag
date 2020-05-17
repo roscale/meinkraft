@@ -2,7 +2,7 @@
 
 out vec4 Color;
 
-uniform sampler2D tex;
+uniform sampler2D atlas;
 
 in VertexAttributes {
     vec3 frag_pos;
@@ -10,7 +10,7 @@ in VertexAttributes {
 } attrs;
 
 void main() {
-    vec4 diffuse_frag = texture(tex, attrs.texture_coords);
+    vec4 diffuse_frag = texture(atlas, attrs.texture_coords);
     if (diffuse_frag.a == 0) {
         discard;
     }

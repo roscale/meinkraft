@@ -1,4 +1,4 @@
-use crate::{UVCoords, UVFaces};
+use crate::types::{UVCoords, UVFaces};
 
 #[derive(Copy, Clone)]
 pub enum BlockFaces<T> {
