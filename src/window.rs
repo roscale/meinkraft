@@ -3,6 +3,8 @@ use std::sync::mpsc::Receiver;
 use glfw::{Context, CursorMode, Glfw, OpenGlProfileHint, Window, WindowEvent, WindowHint};
 
 use crate::constants::{OPENGL_MAJOR_VERSION, OPENGL_MINOR_VERSION};
+#[allow(unused_imports)]
+use glfw::ffi::glfwSwapInterval;
 
 pub fn create_window(width: u32, height: u32, title: &str) -> (Glfw, Window, Receiver<(f64, WindowEvent)>) {
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
@@ -10,14 +12,15 @@ pub fn create_window(width: u32, height: u32, title: &str) -> (Glfw, Window, Rec
     glfw.window_hint(WindowHint::ContextVersionMinor(OPENGL_MINOR_VERSION));
     glfw.window_hint(WindowHint::OpenGlProfile(OpenGlProfileHint::Core));
     glfw.window_hint(WindowHint::OpenGlDebugContext(true));
-    // Uncomment the following line to disable VSync
-    // unsafe { glfwSwapInterval(0) };
 
     // TODO implement an artificial FPS limiter instead of using V-SYNC because it introduces annoying input lag
 
     let (mut window, events) = glfw.create_window(width, height, title, glfw::WindowMode::Windowed)
         .expect("Failed to create GLFW window.");
     gl::load_with(|s| window.get_proc_address(s) as *const _);
+
+    // Uncomment the following line to disable VSync
+    unsafe { glfwSwapInterval(0) };
 
     // Make the window's context current
     window.make_current();

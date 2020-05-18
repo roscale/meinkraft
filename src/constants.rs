@@ -10,10 +10,11 @@ pub const BACKGROUND_COLOR: (f32, f32, f32, f32) = (0.74, 0.84, 1.0, 1.0);
 
 // GUI
 pub const CROSSHAIR_SIZE: f32 = 40.0;
+pub const BLOCK_OUTLINE_WIDTH: f32 = 3.0;
 
 // Input
-pub const MOUSE_SENSITIVITY_X: f32 = 1.0;
-pub const MOUSE_SENSITIVITY_Y: f32 = 1.0;
+pub const MOUSE_SENSITIVITY_X: f32 = 0.5;
+pub const MOUSE_SENSITIVITY_Y: f32 = 0.5;
 
 // Physics
 pub const PHYSICS_TICKRATE: f32 = 60.0;

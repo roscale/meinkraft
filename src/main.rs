@@ -4,7 +4,7 @@ extern crate lazy_static;
 use std::os::raw::c_void;
 
 use glfw::{Action, Context, Key, MouseButton};
-use nalgebra::Vector3;
+use nalgebra::{Matrix4, Vector3};
 use nalgebra_glm::{IVec3, pi, vec3};
 
 use crate::aabb::get_block_aabb;
@@ -19,7 +19,7 @@ use crate::shader_compilation::ShaderProgram;
 use crate::texture_pack::generate_texture_atlas;
 use crate::util::Forward;
 use crate::window::create_window;
-use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture};
+use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture, create_block_outline_vao};
 
 #[macro_use]
 pub mod debugging;
@@ -64,8 +64,10 @@ fn main() {
 
     let mut voxel_shader = ShaderProgram::compile("src/shaders/voxel.vert", "src/shaders/voxel.frag");
     let mut gui_shader = ShaderProgram::compile("src/shaders/gui.vert", "src/shaders/gui.frag");
+    let mut outline_shader = ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag");
 
-    let gui_vao = create_crosshair_vao();
+    let crosshair_vao = create_crosshair_vao();
+    let block_outline_vao = create_block_outline_vao();
 
     let mut player_properties = PlayerProperties::new();
     let mut physics_manager = PhysicsManager::new(
@@ -79,6 +81,21 @@ fn main() {
     let mut input_cache = InputCache::default();
 
     while !window.should_close() {
+        // Get looking block coords
+        let looking_block = {
+            let is_solid_block_at = |x: i32, y: i32, z: i32| {
+                chunk_manager.is_solid_block_at(x, y, z)
+            };
+
+            let fw = player_properties.rotation.forward();
+            let player = physics_manager.get_current_state();
+            raycast::raycast(
+                &is_solid_block_at,
+                &player.get_camera_position(),
+                &fw.normalize(),
+                REACH_DISTANCE)
+        };
+
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             input_cache.handle_event(&event);
@@ -95,19 +112,7 @@ fn main() {
                 }
 
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
-                    let is_solid_block_at = |x: i32, y: i32, z: i32| {
-                        chunk_manager.is_solid_block_at(x, y, z)
-                    };
-
-                    let fw = player_properties.rotation.forward();
-                    let player = physics_manager.get_current_state();
-                    let block_hit = raycast::raycast(
-                        &is_solid_block_at,
-                        &player.get_camera_position(),
-                        &fw.normalize(),
-                        REACH_DISTANCE);
-
-                    if let Some(((x, y, z), normal)) = block_hit {
+                    if let &Some(((x, y, z), normal)) = &looking_block {
                         match button {
                             MouseButton::Button1 => {
                                 chunk_manager.set_block(BlockID::Air, x, y, z);
@@ -119,6 +124,7 @@ fn main() {
                                     adjacent_block.x as f32,
                                     adjacent_block.y as f32,
                                     adjacent_block.z as f32));
+                                let player = physics_manager.get_current_state();
                                 if !player.aabb.intersects(&adjacent_block_aabb) {
                                     // TODO implement Hotbar
                                     chunk_manager.set_block(BlockID::Debug2, adjacent_block.x, adjacent_block.y, adjacent_block.z);
@@ -137,15 +143,16 @@ fn main() {
 
         chunk_manager.rebuild_dirty_chunks(&uv_map);
 
+
+        let view_matrix = {
+            let camera_position = player_physics_state.get_camera_position();
+            let looking_dir = player_properties.rotation.forward();
+            nalgebra_glm::look_at(&camera_position, &(camera_position + looking_dir), &Vector3::y())
+        };
+        let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, NEAR_PLANE, FAR_PLANE);
+
         // Draw chunks
         {
-            let view_matrix = {
-                let camera_position = player_physics_state.get_camera_position();
-                let looking_dir = player_properties.rotation.forward();
-                nalgebra_glm::look_at(&camera_position, &(camera_position + looking_dir), &Vector3::y())
-            };
-            let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, NEAR_PLANE, FAR_PLANE);
-
             voxel_shader.use_program();
             voxel_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
             voxel_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
@@ -159,9 +166,24 @@ fn main() {
             chunk_manager.render_loaded_chunks(&mut voxel_shader);
         }
 
+        // Block outline
+        if let Some(((x, y, z), _)) = looking_block {
+            let (x, y, z) = (x as f32, y as f32, z as f32);
+            let model_matrix = Matrix4::new_translation(&vec3(x, y, z));
+
+            outline_shader.use_program();
+            outline_shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+            outline_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
+            outline_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+
+            gl_call!(gl::LineWidth(BLOCK_OUTLINE_WIDTH));
+            gl_call!(gl::BindVertexArray(block_outline_vao));
+            gl_call!(gl::DrawArrays(gl::LINES, 0, 24));
+        }
+
         // Draw GUI
         {
-            draw_crosshair(gui_vao, &mut gui_shader);
+            draw_crosshair(crosshair_vao, &mut gui_shader);
             // ...
         }
 

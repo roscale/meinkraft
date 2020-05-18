@@ -1,10 +1,13 @@
-use crate::shapes::quad;
 use std::ffi::c_void;
-use crate::shader_compilation::ShaderProgram;
-use nalgebra_glm::{vec3, Mat4};
-use crate::constants::{WINDOW_WIDTH, WINDOW_HEIGHT, CROSSHAIR_SIZE};
+
 use image::GenericImageView;
 use nalgebra::Matrix4;
+use nalgebra_glm::{Mat4, vec3};
+
+use crate::constants::{CROSSHAIR_SIZE, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::shader_compilation::ShaderProgram;
+use crate::shapes::block_outline;
+use crate::shapes::quad;
 
 pub fn create_gui_icons_texture() -> u32 {
     let gui_icons_image = match image::open("textures/gui/icons.png") {
@@ -73,4 +76,24 @@ pub fn draw_crosshair(vao: u32, shader: &mut ShaderProgram) {
     gl_call!(gl::BlendFunc(gl::ONE_MINUS_DST_COLOR, gl::ZERO));
     gl_call!(gl::BindVertexArray(vao));
     gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 6));
+}
+
+pub fn create_block_outline_vao() -> u32 {
+    let mut outline_vao = 0;
+    gl_call!(gl::CreateVertexArrays(1, &mut outline_vao));
+
+    // Position
+    gl_call!(gl::EnableVertexArrayAttrib(outline_vao, 0));
+    gl_call!(gl::VertexArrayAttribFormat(outline_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
+    gl_call!(gl::VertexArrayAttribBinding(outline_vao, 0, 0));
+
+    let mut outline_vbo = 0;
+    gl_call!(gl::CreateBuffers(1, &mut outline_vbo));
+
+    gl_call!(gl::VertexArrayVertexBuffer(outline_vao, 0, outline_vbo, 0, (3 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::NamedBufferData(outline_vbo,
+                    (72 * std::mem::size_of::<f32>() as usize) as isize,
+                    block_outline().as_ptr() as *const c_void,
+                    gl::STATIC_DRAW));
+    outline_vao
 }
