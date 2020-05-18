@@ -17,24 +17,24 @@ pub fn generate_texture_atlas() -> (u32, HashMap<BlockID, BlockFaces<UVCoords>>)
 
 fn create_face_images_map() -> HashMap<BlockID, BlockFaces<&'static str>> {
     let mut face_images: HashMap<BlockID, BlockFaces<&str>> = HashMap::new();
-    face_images.insert(BlockID::Dirt, BlockFaces::All("blocks/dirt.png"));
+    face_images.insert(BlockID::Dirt, BlockFaces::All("textures/blocks/dirt.png"));
     face_images.insert(BlockID::GrassBlock, BlockFaces::Sides {
-        sides: "blocks/grass_block_side.png",
-        top: "blocks/grass_block_top.png",
-        bottom: "blocks/dirt.png",
+        sides: "textures/blocks/grass_block_side.png",
+        top: "textures/blocks/grass_block_top.png",
+        bottom: "textures/blocks/dirt.png",
     });
-    face_images.insert(BlockID::Cobblestone, BlockFaces::All("blocks/cobblestone.png"));
-    face_images.insert(BlockID::Obsidian, BlockFaces::All("blocks/obsidian.png"));
+    face_images.insert(BlockID::Cobblestone, BlockFaces::All("textures/blocks/cobblestone.png"));
+    face_images.insert(BlockID::Obsidian, BlockFaces::All("textures/blocks/obsidian.png"));
     face_images.insert(BlockID::OakLog, BlockFaces::Sides {
-        sides: "blocks/oak_log.png",
-        top: "blocks/oak_log_top.png",
-        bottom: "blocks/oak_log_top.png",
+        sides: "textures/blocks/oak_log.png",
+        top: "textures/blocks/oak_log_top.png",
+        bottom: "textures/blocks/oak_log_top.png",
     });
-    face_images.insert(BlockID::OakLeaves, BlockFaces::All("blocks/oak_leaves_mod.png"));
-    face_images.insert(BlockID::Urss, BlockFaces::All("blocks/urss.png"));
-    face_images.insert(BlockID::Hitler, BlockFaces::All("blocks/hitler.png"));
-    face_images.insert(BlockID::Debug, BlockFaces::All("blocks/debug.png"));
-    face_images.insert(BlockID::Debug2, BlockFaces::All("blocks/debug2.png"));
+    face_images.insert(BlockID::OakLeaves, BlockFaces::All("textures/blocks/oak_leaves_mod.png"));
+    face_images.insert(BlockID::Urss, BlockFaces::All("textures/blocks/urss.png"));
+    face_images.insert(BlockID::Hitler, BlockFaces::All("textures/blocks/hitler.png"));
+    face_images.insert(BlockID::Debug, BlockFaces::All("textures/blocks/debug.png"));
+    face_images.insert(BlockID::Debug2, BlockFaces::All("textures/blocks/debug2.png"));
     face_images
 }
 
