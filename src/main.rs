@@ -19,7 +19,7 @@ use crate::shader_compilation::ShaderProgram;
 use crate::texture_pack::generate_texture_atlas;
 use crate::util::Forward;
 use crate::window::create_window;
-use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture, create_block_outline_vao};
+use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture, create_block_outline_vao, create_widgets_texture, create_hotbar_vao, draw_hotbar};
 
 #[macro_use]
 pub mod debugging;
@@ -62,12 +62,17 @@ fn main() {
     gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 1));
     gl_call!(gl::BindTexture(gl::TEXTURE_2D, gui_icons_texture));
 
+    let gui_widgets_texture = create_widgets_texture();
+    gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 2));
+    gl_call!(gl::BindTexture(gl::TEXTURE_2D, gui_widgets_texture));
+
     let mut voxel_shader = ShaderProgram::compile("src/shaders/voxel.vert", "src/shaders/voxel.frag");
     let mut gui_shader = ShaderProgram::compile("src/shaders/gui.vert", "src/shaders/gui.frag");
     let mut outline_shader = ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag");
 
     let crosshair_vao = create_crosshair_vao();
     let block_outline_vao = create_block_outline_vao();
+    let hotbar_vao = create_hotbar_vao();
 
     let mut player_properties = PlayerProperties::new();
     let mut physics_manager = PhysicsManager::new(
@@ -184,6 +189,8 @@ fn main() {
         // Draw GUI
         {
             draw_crosshair(crosshair_vao, &mut gui_shader);
+            gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
+            draw_hotbar(hotbar_vao, &mut gui_shader);
             // ...
         }
 

@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use image::GenericImageView;
 use nalgebra::Matrix4;
-use nalgebra_glm::{Mat4, vec3};
+use nalgebra_glm::{Mat4, vec3, Vec2};
 
 use crate::constants::{CROSSHAIR_SIZE, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::shader_compilation::ShaderProgram;
@@ -96,4 +96,78 @@ pub fn create_block_outline_vao() -> u32 {
                     block_outline().as_ptr() as *const c_void,
                     gl::STATIC_DRAW));
     outline_vao
+}
+
+pub fn create_widgets_texture() -> u32 {
+    let widgets_image = match image::open("textures/gui/widgets.png") {
+        Ok(img) => img,
+        Err(err) => panic!("Filename: {}, error: {}", "textures/gui/widgets.png", err.to_string())
+    };
+    match widgets_image.color() {
+        image::RGBA(8) => {}
+        _ => panic!("Texture format not supported")
+    };
+
+    // quad((0.0, 0.0, 0.0, 0.0)).chunks(3).take(2).collect::<Vec2>();
+
+    // Upload the image to the GPU
+    let mut widgets_texture = 0;
+    gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut widgets_texture));
+    gl_call!(gl::TextureParameteri(widgets_texture, gl::TEXTURE_MIN_FILTER, gl::NEAREST_MIPMAP_NEAREST as i32));
+    gl_call!(gl::TextureParameteri(widgets_texture, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32));
+    gl_call!(gl::TextureStorage2D(widgets_texture, 1, gl::RGBA8, widgets_image.width() as i32, widgets_image.height() as i32));
+    gl_call!(gl::TextureSubImage2D(
+            widgets_texture, 0,
+            0, 0, widgets_image.width() as i32, widgets_image.height() as i32,
+            gl::RGBA, gl::UNSIGNED_BYTE,
+            widgets_image.raw_pixels().as_ptr() as *mut c_void));
+    widgets_texture
+}
+
+pub fn create_hotbar_vao() -> u32 {
+    let mut hotbar_vao = 0;
+    gl_call!(gl::CreateVertexArrays(1, &mut hotbar_vao));
+
+    // Position
+    gl_call!(gl::EnableVertexArrayAttrib(hotbar_vao, 0));
+    gl_call!(gl::VertexArrayAttribFormat(hotbar_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
+    gl_call!(gl::VertexArrayAttribBinding(hotbar_vao, 0, 0));
+
+    // Texture coords
+    gl_call!(gl::EnableVertexArrayAttrib(hotbar_vao, 1));
+    gl_call!(gl::VertexArrayAttribFormat(hotbar_vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribBinding(hotbar_vao, 1, 0));
+
+    let mut hotbar_vbo = 0;
+    gl_call!(gl::CreateBuffers(1, &mut hotbar_vbo));
+
+    gl_call!(gl::VertexArrayVertexBuffer(hotbar_vao, 0, hotbar_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::NamedBufferData(hotbar_vbo,
+                    (30 * std::mem::size_of::<f32>() as usize) as isize,
+                    quad((0.0, 0.0, 182.0 / 256.0, 22.0 / 256.0)).as_ptr() as *const c_void,
+                    // quad((0.0, 0.0, 1.0, 1.0)).as_ptr() as *const c_void,
+                    gl::STATIC_DRAW));
+    hotbar_vao
+}
+
+pub fn draw_hotbar(vao: u32, shader: &mut ShaderProgram) {
+    let scale = 2.0;
+
+    let model_matrix = {
+        let translate_matrix = Matrix4::new_translation(&vec3(
+            WINDOW_WIDTH as f32 / 2.0, 11.0 * scale, 0.0));
+        // let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(182.0, 22.0, 1.0));
+        let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(182.0 * scale, 22.0 * scale, 1.0));
+        translate_matrix * scale_matrix
+    };
+    let projection_matrix = nalgebra_glm::ortho(
+        0.0, WINDOW_WIDTH as f32, 0.0, WINDOW_HEIGHT as f32, -5.0, 5.0);
+
+    shader.use_program();
+    shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+    shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+    shader.set_uniform1i("tex", 2);
+
+    gl_call!(gl::BindVertexArray(vao));
+    gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 6));
 }
