@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 
 use glfw::{Action, Context, Key, MouseButton};
 use nalgebra::{Matrix4, Vector3};
-use nalgebra_glm::{IVec3, pi, vec3};
+use nalgebra_glm::{IVec3, vec3};
 
 use crate::aabb::get_block_aabb;
 use crate::chunk::BlockID;
@@ -19,7 +19,8 @@ use crate::shader_compilation::ShaderProgram;
 use crate::texture_pack::generate_texture_atlas;
 use crate::util::Forward;
 use crate::window::create_window;
-use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture, create_block_outline_vao, create_widgets_texture, create_hotbar_vao, draw_hotbar};
+use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture, create_block_outline_vao, create_widgets_texture, create_hotbar_vao, create_hotbar_selection_vao};
+use crate::inventory::Inventory;
 
 #[macro_use]
 pub mod debugging;
@@ -40,6 +41,8 @@ pub mod texture_pack;
 pub mod player;
 pub mod types;
 pub mod gui;
+pub mod inventory;
+pub mod drawing;
 
 fn main() {
     let (mut glfw, mut window, events) = create_window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_NAME);
@@ -69,10 +72,14 @@ fn main() {
     let mut voxel_shader = ShaderProgram::compile("src/shaders/voxel.vert", "src/shaders/voxel.frag");
     let mut gui_shader = ShaderProgram::compile("src/shaders/gui.vert", "src/shaders/gui.frag");
     let mut outline_shader = ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag");
+    let mut item_shader = ShaderProgram::compile("src/shaders/item.vert", "src/shaders/item.frag");
 
     let crosshair_vao = create_crosshair_vao();
     let block_outline_vao = create_block_outline_vao();
     let hotbar_vao = create_hotbar_vao();
+    let hotbar_selection_vao = create_hotbar_selection_vao();
+
+    let mut inventory = Inventory::new(&uv_map);
 
     let mut player_properties = PlayerProperties::new();
     let mut physics_manager = PhysicsManager::new(
@@ -104,6 +111,7 @@ fn main() {
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             input_cache.handle_event(&event);
+            inventory.handle_input_event(&event);
 
             match event {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
@@ -131,8 +139,9 @@ fn main() {
                                     adjacent_block.z as f32));
                                 let player = physics_manager.get_current_state();
                                 if !player.aabb.intersects(&adjacent_block_aabb) {
-                                    // TODO implement Hotbar
-                                    chunk_manager.set_block(BlockID::Debug2, adjacent_block.x, adjacent_block.y, adjacent_block.z);
+                                    if let Some(block) = inventory.get_selected_item() {
+                                        chunk_manager.set_block(block, adjacent_block.x, adjacent_block.y, adjacent_block.z);
+                                    }
                                     println!("Put block at ({} {} {})", adjacent_block.x, adjacent_block.y, adjacent_block.z);
                                 }
                             }
@@ -154,7 +163,7 @@ fn main() {
             let looking_dir = player_properties.rotation.forward();
             nalgebra_glm::look_at(&camera_position, &(camera_position + looking_dir), &Vector3::y())
         };
-        let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, NEAR_PLANE, FAR_PLANE);
+        let projection_matrix = nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, FOV, NEAR_PLANE, FAR_PLANE);
 
         // Draw chunks
         {
@@ -190,7 +199,11 @@ fn main() {
         {
             draw_crosshair(crosshair_vao, &mut gui_shader);
             gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
-            draw_hotbar(hotbar_vao, &mut gui_shader);
+            gl_call!(gl::Disable(gl::DEPTH_TEST));
+            inventory.draw_hotbar(hotbar_vao, &mut gui_shader);
+            inventory.draw_hotbar_selection_box(hotbar_selection_vao, &mut gui_shader);
+            inventory.draw_hotbar_items(&mut item_shader);
+            gl_call!(gl::Enable(gl::DEPTH_TEST));
             // ...
         }
 

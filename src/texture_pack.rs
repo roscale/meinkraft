@@ -31,6 +31,8 @@ fn create_face_images_map() -> HashMap<BlockID, BlockFaces<&'static str>> {
         bottom: "textures/blocks/oak_log_top.png",
     });
     face_images.insert(BlockID::OakLeaves, BlockFaces::All("textures/blocks/oak_leaves_mod.png"));
+    face_images.insert(BlockID::OakPlanks, BlockFaces::All("textures/blocks/oak_planks.png"));
+    face_images.insert(BlockID::Glass, BlockFaces::All("textures/blocks/glass.png"));
     face_images.insert(BlockID::Urss, BlockFaces::All("textures/blocks/urss.png"));
     face_images.insert(BlockID::Hitler, BlockFaces::All("textures/blocks/hitler.png"));
     face_images.insert(BlockID::Debug, BlockFaces::All("textures/blocks/debug.png"));

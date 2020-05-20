@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use image::GenericImageView;
 use nalgebra::Matrix4;
-use nalgebra_glm::{Mat4, vec3, Vec2};
+use nalgebra_glm::{Mat4, vec3};
 
 use crate::constants::{CROSSHAIR_SIZE, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::shader_compilation::ShaderProgram;
@@ -61,7 +61,7 @@ pub fn create_crosshair_vao() -> u32 {
 pub fn draw_crosshair(vao: u32, shader: &mut ShaderProgram) {
     let model_matrix = {
         let translate_matrix = Matrix4::new_translation(&vec3(
-            WINDOW_WIDTH as f32 / 2.0, WINDOW_WIDTH as f32 / 2.0, 0.0));
+            WINDOW_WIDTH as f32 / 2.0, WINDOW_HEIGHT as f32 / 2.0, 0.0));
         let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(CROSSHAIR_SIZE, CROSSHAIR_SIZE, 1.0));
         translate_matrix * scale_matrix
     };
@@ -150,24 +150,28 @@ pub fn create_hotbar_vao() -> u32 {
     hotbar_vao
 }
 
-pub fn draw_hotbar(vao: u32, shader: &mut ShaderProgram) {
-    let scale = 2.0;
+pub fn create_hotbar_selection_vao() -> u32 {
+    let mut hotbar_selection_vao = 0;
+    gl_call!(gl::CreateVertexArrays(1, &mut hotbar_selection_vao));
 
-    let model_matrix = {
-        let translate_matrix = Matrix4::new_translation(&vec3(
-            WINDOW_WIDTH as f32 / 2.0, 11.0 * scale, 0.0));
-        // let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(182.0, 22.0, 1.0));
-        let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(182.0 * scale, 22.0 * scale, 1.0));
-        translate_matrix * scale_matrix
-    };
-    let projection_matrix = nalgebra_glm::ortho(
-        0.0, WINDOW_WIDTH as f32, 0.0, WINDOW_HEIGHT as f32, -5.0, 5.0);
+    // Position
+    gl_call!(gl::EnableVertexArrayAttrib(hotbar_selection_vao, 0));
+    gl_call!(gl::VertexArrayAttribFormat(hotbar_selection_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
+    gl_call!(gl::VertexArrayAttribBinding(hotbar_selection_vao, 0, 0));
 
-    shader.use_program();
-    shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-    shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
-    shader.set_uniform1i("tex", 2);
+    // Texture coords
+    gl_call!(gl::EnableVertexArrayAttrib(hotbar_selection_vao, 1));
+    gl_call!(gl::VertexArrayAttribFormat(hotbar_selection_vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribBinding(hotbar_selection_vao, 1, 0));
 
-    gl_call!(gl::BindVertexArray(vao));
-    gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 6));
+    let mut hotbar_selection_vbo = 0;
+    gl_call!(gl::CreateBuffers(1, &mut hotbar_selection_vbo));
+
+    gl_call!(gl::VertexArrayVertexBuffer(hotbar_selection_vao, 0, hotbar_selection_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::NamedBufferData(hotbar_selection_vbo,
+                    (30 * std::mem::size_of::<f32>() as usize) as isize,
+                    quad((0.0, 22.0 / 256.0, 24.0 / 256.0, 46.0 / 256.0)).as_ptr() as *const c_void,
+                    // quad((0.0, 0.0, 1.0, 1.0)).as_ptr() as *const c_void,
+                    gl::STATIC_DRAW));
+    hotbar_selection_vao
 }

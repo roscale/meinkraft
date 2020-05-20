@@ -13,6 +13,8 @@ pub enum BlockID {
     Obsidian,
     OakLog,
     OakLeaves,
+    OakPlanks,
+    Glass,
     Urss,
     Hitler,
     Debug,
@@ -26,7 +28,8 @@ impl BlockID {
     pub fn is_transparent(&self) -> bool {
         match self {
             &BlockID::Air |
-            &BlockID::OakLeaves => true,
+            &BlockID::OakLeaves |
+            &BlockID::Glass => true,
             _ => false
         }
     }

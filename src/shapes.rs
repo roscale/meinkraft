@@ -101,6 +101,7 @@ pub unsafe fn write_unit_cube_to_ptr(ptr: *mut f32, x: f32, y: f32, z: f32,
 }
 
 pub fn block_outline() -> &'static [f32; 72] {
+    // Groups of parallel lines for each dimension
     &[
         0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 1.0, 1.0, 0.0,
@@ -117,4 +118,53 @@ pub fn block_outline() -> &'static [f32; 72] {
         1.0, 1.0, 0.0, 1.0, 1.0, 1.0,
         0.0, 1.0, 0.0, 0.0, 1.0, 1.0,
     ]
+}
+
+pub fn centered_unit_cube(x: f32, y: f32, z: f32, (front_uv, back_uv, top_uv, bottom_uv, left_uv, right_uv): UVFaces) -> Vec<f32> {
+    // Position: 3 floats
+    // UV coords: 2 floats
+    // Normal: 3 floats
+    [
+        0.0f32 + x,  0.0 + y, 1.0 + z, front_uv.0, front_uv.1, 0.0, 0.0, 1.0,
+        1.0 + x,  0.0 + y,  1.0 + z, front_uv.2, front_uv.1, 0.0, 0.0, 1.0,
+        1.0 + x,  1.0 + y,  1.0 + z, front_uv.2, front_uv.3, 0.0, 0.0, 1.0,
+        1.0 + x,  1.0 + y,  1.0 + z, front_uv.2, front_uv.3, 0.0, 0.0, 1.0,
+        0.0 + x,  1.0 + y,  1.0 + z, front_uv.0, front_uv.3, 0.0, 0.0, 1.0,
+        0.0 + x,  0.0 + y,  1.0 + z, front_uv.0, front_uv.1, 0.0, 0.0, 1.0,
+
+        1.0 + x,  0.0 + y,  0.0 + z, back_uv.0, back_uv.1, 0.0, 0.0, -1.0,
+        0.0 + x,  0.0 + y,  0.0 + z, back_uv.2, back_uv.1, 0.0, 0.0, -1.0,
+        0.0 + x,  1.0 + y,  0.0 + z, back_uv.2, back_uv.3, 0.0, 0.0, -1.0,
+        0.0 + x,  1.0 + y,  0.0 + z, back_uv.2, back_uv.3, 0.0, 0.0, -1.0,
+        1.0 + x,  1.0 + y,  0.0 + z, back_uv.0, back_uv.3, 0.0, 0.0, -1.0,
+        1.0 + x,  0.0 + y,  0.0 + z, back_uv.0, back_uv.1, 0.0, 0.0, -1.0,
+
+        0.0 + x,  0.0 + y,  0.0 + z, left_uv.0, left_uv.1, -1.0, 0.0, 0.0,
+        0.0 + x,  0.0 + y,  1.0 + z, left_uv.2, left_uv.1, -1.0, 0.0, 0.0,
+        0.0 + x,  1.0 + y,  1.0 + z, left_uv.2, left_uv.3, -1.0, 0.0, 0.0,
+        0.0 + x,  1.0 + y,  1.0 + z, left_uv.2, left_uv.3, -1.0, 0.0, 0.0,
+        0.0 + x,  1.0 + y,  0.0 + z, left_uv.0, left_uv.3, -1.0, 0.0, 0.0,
+        0.0 + x,  0.0 + y,  0.0 + z, left_uv.0, left_uv.1, -1.0, 0.0, 0.0,
+
+        1.0 + x,  0.0 + y,  1.0 + z, right_uv.0, right_uv.1, 1.0, 0.0, 0.0,
+        1.0 + x,  0.0 + y,  0.0 + z, right_uv.2, right_uv.1, 1.0, 0.0, 0.0,
+        1.0 + x,  1.0 + y,  0.0 + z, right_uv.2, right_uv.3, 1.0, 0.0, 0.0,
+        1.0 + x,  1.0 + y,  0.0 + z, right_uv.2, right_uv.3, 1.0, 0.0, 0.0,
+        1.0 + x,  1.0 + y,  1.0 + z, right_uv.0, right_uv.3, 1.0, 0.0, 0.0,
+        1.0 + x,  0.0 + y,  1.0 + z, right_uv.0, right_uv.1, 1.0, 0.0, 0.0,
+
+        0.0 + x,  1.0 + y,  1.0 + z, top_uv.0, top_uv.1, 0.0, 1.0, 0.0,
+        1.0 + x,  1.0 + y,  1.0 + z, top_uv.2, top_uv.1, 0.0, 1.0, 0.0,
+        1.0 + x,  1.0 + y,  0.0 + z, top_uv.2, top_uv.3, 0.0, 1.0, 0.0,
+        1.0 + x,  1.0 + y,  0.0 + z, top_uv.2, top_uv.3, 0.0, 1.0, 0.0,
+        0.0 + x,  1.0 + y,  0.0 + z, top_uv.0, top_uv.3, 0.0, 1.0, 0.0,
+        0.0 + x,  1.0 + y,  1.0 + z, top_uv.0, top_uv.1, 0.0, 1.0, 0.0,
+
+        0.0 + x,  0.0 + y,  0.0 + z, bottom_uv.0, bottom_uv.1, 0.0, -1.0, 0.0,
+        1.0 + x,  0.0 + y,  0.0 + z, bottom_uv.2, bottom_uv.1, 0.0, -1.0, 0.0,
+        1.0 + x,  0.0 + y,  1.0 + z, bottom_uv.2, bottom_uv.3, 0.0, -1.0, 0.0,
+        1.0 + x,  0.0 + y,  1.0 + z, bottom_uv.2, bottom_uv.3, 0.0, -1.0, 0.0,
+        0.0 + x,  0.0 + y,  1.0 + z, bottom_uv.0, bottom_uv.3, 0.0, -1.0, 0.0,
+        0.0 + x,  0.0 + y,  0.0 + z, bottom_uv.0, bottom_uv.1, 0.0, -1.0, 0.0,
+    ].to_vec()
 }

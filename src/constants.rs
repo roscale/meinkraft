@@ -2,13 +2,15 @@
 pub const OPENGL_MAJOR_VERSION: u32 = 4;
 pub const OPENGL_MINOR_VERSION: u32 = 6;
 pub const WINDOW_NAME: &str = "Meinkraft";
-pub const WINDOW_WIDTH: u32 = 800;
-pub const WINDOW_HEIGHT: u32 = 800;
+pub const WINDOW_WIDTH: u32 = 1000;
+pub const WINDOW_HEIGHT: u32 = 600;
 pub const NEAR_PLANE: f32 = 0.1;
 pub const FAR_PLANE: f32 = 1000.0;
 pub const BACKGROUND_COLOR: (f32, f32, f32, f32) = (0.74, 0.84, 1.0, 1.0);
+pub const FOV: f32 = 1.22173; // in radians
 
 // GUI
+pub const GUI_SCALING: f32 = 2.0;
 pub const CROSSHAIR_SIZE: f32 = 40.0;
 pub const BLOCK_OUTLINE_WIDTH: f32 = 3.0;
 

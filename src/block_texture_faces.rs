@@ -9,12 +9,14 @@ pub enum BlockFaces<T> {
 
 /// Unpacks a BlockFaces<UVCoords> instance and returns a tuple of UV coordinates
 /// for each face of the block
-pub fn get_uv_of_every_face(faces: BlockFaces<UVCoords>) -> UVFaces {
-    match faces {
-        BlockFaces::All(uv) => (uv, uv, uv, uv, uv, uv),
-        BlockFaces::Sides { sides, top, bottom } =>
-            (sides, sides, top, bottom, sides, sides),
-        BlockFaces::Each { top, bottom, front, back, left, right } =>
-            (front, back, top, bottom, left, right)
+impl BlockFaces<UVCoords> {
+    pub fn get_uv_of_every_face(&self) -> UVFaces {
+        match self {
+            &BlockFaces::All(uv) => (uv, uv, uv, uv, uv, uv),
+            &BlockFaces::Sides { sides, top, bottom } =>
+                (sides, sides, top, bottom, sides, sides),
+            &BlockFaces::Each { top, bottom, front, back, left, right } =>
+                (front, back, top, bottom, left, right)
+        }
     }
 }

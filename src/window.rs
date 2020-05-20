@@ -28,6 +28,7 @@ pub fn create_window(width: u32, height: u32, title: &str) -> (Glfw, Window, Rec
     window.set_cursor_pos_polling(true);
     window.set_raw_mouse_motion(true);
     window.set_mouse_button_polling(true);
+    window.set_scroll_polling(true);
     window.set_cursor_mode(CursorMode::Disabled);
     (glfw, window, events)
 }
