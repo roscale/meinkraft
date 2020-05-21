@@ -166,23 +166,211 @@ impl ChunkManager {
                 If 2 solid blocks are touching, don't render the faces where they touch.
                 Render only the faces that are next to a transparent block (AIR for example)
          */
+        type ChunkCoords = (i32, i32, i32);
+
         type Sides = [bool; 6];
-        let mut active_faces: HashMap<(i32, i32, i32), Vec<Sides>> = HashMap::new();
+        let mut active_faces: HashMap<ChunkCoords, Vec<Sides>> = HashMap::new();
+
+        type CubeAO = [[u8; 4]; 6];
+        let mut ao: HashMap<ChunkCoords, Vec<CubeAO>> = HashMap::new();
+
         for &coords in &dirty_chunks {
             let (c_x, c_y, c_z) = coords;
             let chunk = self.loaded_chunks.get(&coords);
             if let Some(chunk) = chunk {
                 let active_faces_vec = active_faces.entry(coords).or_default();
+                let ao_vec = ao.entry(coords).or_default();
 
                 for (b_x, b_y, b_z) in BlockIterator::new() {
                     let block = chunk.get_block(b_x, b_y, b_z);
                     if !block.is_air() {
                         let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-                        active_faces_vec.push(self.get_active_faces_of_block(g_x, g_y, g_z))
+                        let active_faces_of_block = self.get_active_faces_of_block(g_x, g_y, g_z);
+                        active_faces_vec.push(active_faces_of_block);
+
+                        let is_solid = |x: i32, y: i32, z: i32| {
+                            self.get_block(x, y, z).filter(|&b| !b.is_transparent_no_leaves()).is_some()
+                        };
+
+                        let relative = {
+                            let mut r = [(0, 0, 0); 26];
+                            let mut i = 0;
+                            for x in -1..=1 {
+                                for y in -1..=1 {
+                                    for z in -1..=1 {
+                                        if x != 0 && y != 0 && z != 0 {
+                                            r[i] = (x, y, z);
+                                            i += 1;
+                                        }
+                                    }
+                                }
+                            }
+                            r
+                        };
+
+                        let mut affected_corners: HashMap<(i32, i32, i32), Vec<(u8, u8)>> = HashMap::new();
+                        let mut add = |k, v| {
+                            affected_corners.entry(k).or_default().push(v);
+                        };
+
+                        const RIGHT: u8 = 0;
+                        const LEFT: u8 = 1;
+                        const TOP: u8 = 2;
+                        const BOTTOM: u8 = 3;
+                        const FRONT: u8 = 4;
+                        const BACK: u8 = 5;
+
+                        /*
+                        right =  0,
+                        left =   1,
+                        top =    2,
+                        bottom = 3,
+                        front =  4,
+                        back =   5
+                         */
+
+                        // Corners bottom
+                        add((-1, -1, -1), (LEFT, 0));
+                        add((-1, -1, -1), (BOTTOM, 0));
+                        add((-1, -1, -1), (BACK, 1));
+
+                        add((1, -1, -1), (RIGHT, 1));
+                        add((1, -1, -1), (BOTTOM, 1));
+                        add((1, -1, -1), (BACK, 0));
+
+                        add((1, -1, 1), (RIGHT, 0));
+                        add((1, -1, 1), (BOTTOM, 2));
+                        add((1, -1, 1), (FRONT, 1));
+
+                        add((-1, -1, 1), (LEFT, 1));
+                        add((-1, -1, 1), (BOTTOM, 3));
+                        add((-1, -1, 1), (FRONT, 0));
+
+                        // Corners top
+                        add((-1, 1, -1), (LEFT, 3));
+                        add((-1, 1, -1), (TOP, 3));
+                        add((-1, 1, -1), (BACK, 2));
+
+                        add((1, 1, -1), (RIGHT, 2));
+                        add((1, 1, -1), (TOP, 2));
+                        add((1, 1, -1), (BACK, 3));
+
+                        add((1, 1, 1), (RIGHT, 3));
+                        add((1, 1, 1), (TOP, 1));
+                        add((1, 1, 1), (FRONT, 2));
+
+                        add((-1, 1, 1), (LEFT, 2));
+                        add((-1, 1, 1), (TOP, 0));
+                        add((-1, 1, 1), (FRONT, 3));
+
+                        // X Edges
+                        add((0, -1, -1), (BOTTOM, 0));
+                        add((0, -1, -1), (BOTTOM, 1));
+                        add((0, -1, -1), (BACK, 0));
+                        add((0, -1, -1), (BACK, 1));
+
+                        add((0, 1, -1), (TOP, 2));
+                        add((0, 1, -1), (TOP, 3));
+                        add((0, 1, -1), (BACK, 2));
+                        add((0, 1, -1), (BACK, 3));
+
+                        add((0, 1, 1), (TOP, 0));
+                        add((0, 1, 1), (TOP, 1));
+                        add((0, 1, 1), (FRONT, 2));
+                        add((0, 1, 1), (FRONT, 3));
+
+                        add((0, -1, 1), (BOTTOM, 2));
+                        add((0, -1, 1), (BOTTOM, 3));
+                        add((0, -1, 1), (FRONT, 0));
+                        add((0, -1, 1), (FRONT, 1));
+
+                        // Y Edges
+                        add((-1, 0, -1), (LEFT, 0));
+                        add((-1, 0, -1), (LEFT, 3));
+                        add((-1, 0, -1), (BACK, 1));
+                        add((-1, 0, -1), (BACK, 2));
+
+                        add((1, 0, -1), (RIGHT, 1));
+                        add((1, 0, -1), (RIGHT, 2));
+                        add((1, 0, -1), (BACK, 0));
+                        add((1, 0, -1), (BACK, 3));
+
+                        add((1, 0, 1), (RIGHT, 0));
+                        add((1, 0, 1), (RIGHT, 3));
+                        add((1, 0, 1), (FRONT, 1));
+                        add((1, 0, 1), (FRONT, 2));
+
+                        add((-1, 0, 1), (LEFT, 1));
+                        add((-1, 0, 1), (LEFT, 2));
+                        add((-1, 0, 1), (FRONT, 0));
+                        add((-1, 0, 1), (FRONT, 3));
+
+                        // Z Edges
+                        add((-1, -1, 0), (LEFT, 0));
+                        add((-1, -1, 0), (LEFT, 1));
+                        add((-1, -1, 0), (BOTTOM, 0));
+                        add((-1, -1, 0), (BOTTOM, 3));
+
+                        add((1, -1, 0), (RIGHT, 0));
+                        add((1, -1, 0), (RIGHT, 1));
+                        add((1, -1, 0), (BOTTOM, 1));
+                        add((1, -1, 0), (BOTTOM, 2));
+
+                        add((1, 1, 0), (RIGHT, 2));
+                        add((1, 1, 0), (RIGHT, 3));
+                        add((1, 1, 0), (TOP, 1));
+                        add((1, 1, 0), (TOP, 2));
+
+                        add((-1, 1, 0), (LEFT, 2));
+                        add((-1, 1, 0), (LEFT, 3));
+                        add((-1, 1, 0), (TOP, 0));
+                        add((-1, 1, 0), (TOP, 3));
+
+
+                        let mut ao_block = [[0; 4]; 6];
+
+                        for x in -1..=1 {
+                            for y in -1..=1 {
+                                for z in -1..=1 {
+                                    if x != 0 || y != 0 || z != 0 {
+                                        if is_solid(g_x + x, g_y + y ,g_z + z) {
+                                            let affected = affected_corners.get(&(x, y, z));
+                                            if let Some(affected) = affected {
+                                                for &(face, vertex) in affected {
+                                                    ao_block[face as usize][vertex as usize] += 1;
+                                                    // dbg!("hah");
+                                                }
+                                            }
+
+
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ao_vec.push(ao_block);
+
+
+                        // let left = self.get_block(x - 1, y, z).filter(|&b| !b.is_transparent()).is_none();
+                        // let top = self.get_block(x, y + 1, z).filter(|&b| !b.is_transparent()).is_none();
+                        // let bottom = self.get_block(x, y - 1, z).filter(|&b| !b.is_transparent()).is_none();
+                        // let front = self.get_block(x, y, z + 1).filter(|&b| !b.is_transparent()).is_none();
+                        // let back = self.get_block(x, y, z - 1).filter(|&b| !b.is_transparent()).is_none();
+
+                        // Ambient Occlusion
+                        // let right = active_faces_of_block[0];
+                        // let left = active_faces_of_block[1];
+                        // let top = active_faces_of_block[2];
+                        // let bottom = active_faces_of_block[3];
+                        // let front = active_faces_of_block[4];
+                        // let back = active_faces_of_block[5];
                     }
                 }
             }
         }
+
+
+
 
         // Update the VBOs of the dirty chunks
         for chunk_coords in &dirty_chunks {
@@ -204,7 +392,7 @@ impl ChunkManager {
 
                 // Initialize the VBO
                 gl_call!(gl::NamedBufferData(chunk.vbo,
-                    (48 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                    (6 * 9 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
                     null(),
                     gl::DYNAMIC_DRAW));
 
@@ -213,21 +401,23 @@ impl ChunkManager {
                 let mut vbo_offset = 0;
 
                 let sides_vec = active_faces.get(&chunk_coords).unwrap();
+                let ao_vec = ao.get(&chunk_coords).unwrap();
                 let mut j = 0;
 
                 for (x, y, z) in BlockIterator::new() {
                     let block = chunk.get_block(x, y, z);
                     if block != BlockID::Air {
                         let active_sides = sides_vec[j];
+                        let ao_block = ao_vec[j];
 
                         let uvs = uv_map.get(&block).unwrap().clone();
                         let uvs = uvs.get_uv_of_every_face();
 
-                        let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides) };
+                        let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides, ao_block) };
                         // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
                         // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
                         chunk.vertices_drawn += copied_vertices;
-                        vbo_offset += copied_vertices as isize * 8; // 5 floats per vertex
+                        vbo_offset += copied_vertices as isize * 9; // 5 floats per vertex
                         j += 1;
                     }
 
