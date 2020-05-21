@@ -161,6 +161,147 @@ impl ChunkManager {
             }
         }
 
+        let mut affected_corners: HashMap<(i32, i32, i32), Vec<(u8, u8)>> = HashMap::new();
+        let mut add = |k, v| {
+            affected_corners.entry(k).or_default().push(v);
+        };
+
+        const RIGHT: u8 = 0;
+        const LEFT: u8 = 1;
+        const TOP: u8 = 2;
+        const BOTTOM: u8 = 3;
+        const FRONT: u8 = 4;
+        const BACK: u8 = 5;
+
+        // Corners bottom
+        add((-1, -1, -1), (LEFT, 0));
+        add((-1, -1, -1), (BOTTOM, 0));
+        add((-1, -1, -1), (BACK, 1));
+
+        add((1, -1, -1), (RIGHT, 1));
+        add((1, -1, -1), (BOTTOM, 1));
+        add((1, -1, -1), (BACK, 0));
+
+        add((1, -1, 1), (RIGHT, 0));
+        add((1, -1, 1), (BOTTOM, 2));
+        add((1, -1, 1), (FRONT, 1));
+
+        add((-1, -1, 1), (LEFT, 1));
+        add((-1, -1, 1), (BOTTOM, 3));
+        add((-1, -1, 1), (FRONT, 0));
+
+        // Corners top
+        add((-1, 1, -1), (LEFT, 3));
+        add((-1, 1, -1), (TOP, 3));
+        add((-1, 1, -1), (BACK, 2));
+
+        add((1, 1, -1), (RIGHT, 2));
+        add((1, 1, -1), (TOP, 2));
+        add((1, 1, -1), (BACK, 3));
+
+        add((1, 1, 1), (RIGHT, 3));
+        add((1, 1, 1), (TOP, 1));
+        add((1, 1, 1), (FRONT, 2));
+
+        add((-1, 1, 1), (LEFT, 2));
+        add((-1, 1, 1), (TOP, 0));
+        add((-1, 1, 1), (FRONT, 3));
+
+        // X Edges
+        add((0, -1, -1), (BOTTOM, 0));
+        add((0, -1, -1), (BOTTOM, 1));
+        add((0, -1, -1), (BACK, 0));
+        add((0, -1, -1), (BACK, 1));
+
+        add((0, 1, -1), (TOP, 2));
+        add((0, 1, -1), (TOP, 3));
+        add((0, 1, -1), (BACK, 2));
+        add((0, 1, -1), (BACK, 3));
+
+        add((0, 1, 1), (TOP, 0));
+        add((0, 1, 1), (TOP, 1));
+        add((0, 1, 1), (FRONT, 2));
+        add((0, 1, 1), (FRONT, 3));
+
+        add((0, -1, 1), (BOTTOM, 2));
+        add((0, -1, 1), (BOTTOM, 3));
+        add((0, -1, 1), (FRONT, 0));
+        add((0, -1, 1), (FRONT, 1));
+
+        // Y Edges
+        add((-1, 0, -1), (LEFT, 0));
+        add((-1, 0, -1), (LEFT, 3));
+        add((-1, 0, -1), (BACK, 1));
+        add((-1, 0, -1), (BACK, 2));
+
+        add((1, 0, -1), (RIGHT, 1));
+        add((1, 0, -1), (RIGHT, 2));
+        add((1, 0, -1), (BACK, 0));
+        add((1, 0, -1), (BACK, 3));
+
+        add((1, 0, 1), (RIGHT, 0));
+        add((1, 0, 1), (RIGHT, 3));
+        add((1, 0, 1), (FRONT, 1));
+        add((1, 0, 1), (FRONT, 2));
+
+        add((-1, 0, 1), (LEFT, 1));
+        add((-1, 0, 1), (LEFT, 2));
+        add((-1, 0, 1), (FRONT, 0));
+        add((-1, 0, 1), (FRONT, 3));
+
+        // Z Edges
+        add((-1, -1, 0), (LEFT, 0));
+        add((-1, -1, 0), (LEFT, 1));
+        add((-1, -1, 0), (BOTTOM, 0));
+        add((-1, -1, 0), (BOTTOM, 3));
+
+        add((1, -1, 0), (RIGHT, 0));
+        add((1, -1, 0), (RIGHT, 1));
+        add((1, -1, 0), (BOTTOM, 1));
+        add((1, -1, 0), (BOTTOM, 2));
+
+        add((1, 1, 0), (RIGHT, 2));
+        add((1, 1, 0), (RIGHT, 3));
+        add((1, 1, 0), (TOP, 1));
+        add((1, 1, 0), (TOP, 2));
+
+        add((-1, 1, 0), (LEFT, 2));
+        add((-1, 1, 0), (LEFT, 3));
+        add((-1, 1, 0), (TOP, 0));
+        add((-1, 1, 0), (TOP, 3));
+
+        // Sides
+        add((-1, 0, 0), (LEFT, 0));
+        add((-1, 0, 0), (LEFT, 1));
+        add((-1, 0, 0), (LEFT, 2));
+        add((-1, 0, 0), (LEFT, 3));
+
+        add((1, 0, 0), (RIGHT, 0));
+        add((1, 0, 0), (RIGHT, 1));
+        add((1, 0, 0), (RIGHT, 2));
+        add((1, 0, 0), (RIGHT, 3));
+
+        add((0, -1, 0), (BOTTOM, 0));
+        add((0, -1, 0), (BOTTOM, 1));
+        add((0, -1, 0), (BOTTOM, 2));
+        add((0, -1, 0), (BOTTOM, 3));
+
+        add((0, 1, 0), (TOP, 0));
+        add((0, 1, 0), (TOP, 1));
+        add((0, 1, 0), (TOP, 2));
+        add((0, 1, 0), (TOP, 3));
+
+        add((0, 0, -1), (BACK, 0));
+        add((0, 0, -1), (BACK, 1));
+        add((0, 0, -1), (BACK, 2));
+        add((0, 0, -1), (BACK, 3));
+
+        add((0, 0, 1), (FRONT, 0));
+        add((0, 0, 1), (FRONT, 1));
+        add((0, 0, 1), (FRONT, 2));
+        add((0, 0, 1), (FRONT, 3));
+
+
         /*
             Optimization:
                 If 2 solid blocks are touching, don't render the faces where they touch.
@@ -188,144 +329,10 @@ impl ChunkManager {
                         let active_faces_of_block = self.get_active_faces_of_block(g_x, g_y, g_z);
                         active_faces_vec.push(active_faces_of_block);
 
+                        // Ambient Occlusion
                         let is_solid = |x: i32, y: i32, z: i32| {
                             self.get_block(x, y, z).filter(|&b| !b.is_transparent_no_leaves()).is_some()
                         };
-
-                        let relative = {
-                            let mut r = [(0, 0, 0); 26];
-                            let mut i = 0;
-                            for x in -1..=1 {
-                                for y in -1..=1 {
-                                    for z in -1..=1 {
-                                        if x != 0 && y != 0 && z != 0 {
-                                            r[i] = (x, y, z);
-                                            i += 1;
-                                        }
-                                    }
-                                }
-                            }
-                            r
-                        };
-
-                        let mut affected_corners: HashMap<(i32, i32, i32), Vec<(u8, u8)>> = HashMap::new();
-                        let mut add = |k, v| {
-                            affected_corners.entry(k).or_default().push(v);
-                        };
-
-                        const RIGHT: u8 = 0;
-                        const LEFT: u8 = 1;
-                        const TOP: u8 = 2;
-                        const BOTTOM: u8 = 3;
-                        const FRONT: u8 = 4;
-                        const BACK: u8 = 5;
-
-                        /*
-                        right =  0,
-                        left =   1,
-                        top =    2,
-                        bottom = 3,
-                        front =  4,
-                        back =   5
-                         */
-
-                        // Corners bottom
-                        add((-1, -1, -1), (LEFT, 0));
-                        add((-1, -1, -1), (BOTTOM, 0));
-                        add((-1, -1, -1), (BACK, 1));
-
-                        add((1, -1, -1), (RIGHT, 1));
-                        add((1, -1, -1), (BOTTOM, 1));
-                        add((1, -1, -1), (BACK, 0));
-
-                        add((1, -1, 1), (RIGHT, 0));
-                        add((1, -1, 1), (BOTTOM, 2));
-                        add((1, -1, 1), (FRONT, 1));
-
-                        add((-1, -1, 1), (LEFT, 1));
-                        add((-1, -1, 1), (BOTTOM, 3));
-                        add((-1, -1, 1), (FRONT, 0));
-
-                        // Corners top
-                        add((-1, 1, -1), (LEFT, 3));
-                        add((-1, 1, -1), (TOP, 3));
-                        add((-1, 1, -1), (BACK, 2));
-
-                        add((1, 1, -1), (RIGHT, 2));
-                        add((1, 1, -1), (TOP, 2));
-                        add((1, 1, -1), (BACK, 3));
-
-                        add((1, 1, 1), (RIGHT, 3));
-                        add((1, 1, 1), (TOP, 1));
-                        add((1, 1, 1), (FRONT, 2));
-
-                        add((-1, 1, 1), (LEFT, 2));
-                        add((-1, 1, 1), (TOP, 0));
-                        add((-1, 1, 1), (FRONT, 3));
-
-                        // X Edges
-                        add((0, -1, -1), (BOTTOM, 0));
-                        add((0, -1, -1), (BOTTOM, 1));
-                        add((0, -1, -1), (BACK, 0));
-                        add((0, -1, -1), (BACK, 1));
-
-                        add((0, 1, -1), (TOP, 2));
-                        add((0, 1, -1), (TOP, 3));
-                        add((0, 1, -1), (BACK, 2));
-                        add((0, 1, -1), (BACK, 3));
-
-                        add((0, 1, 1), (TOP, 0));
-                        add((0, 1, 1), (TOP, 1));
-                        add((0, 1, 1), (FRONT, 2));
-                        add((0, 1, 1), (FRONT, 3));
-
-                        add((0, -1, 1), (BOTTOM, 2));
-                        add((0, -1, 1), (BOTTOM, 3));
-                        add((0, -1, 1), (FRONT, 0));
-                        add((0, -1, 1), (FRONT, 1));
-
-                        // Y Edges
-                        add((-1, 0, -1), (LEFT, 0));
-                        add((-1, 0, -1), (LEFT, 3));
-                        add((-1, 0, -1), (BACK, 1));
-                        add((-1, 0, -1), (BACK, 2));
-
-                        add((1, 0, -1), (RIGHT, 1));
-                        add((1, 0, -1), (RIGHT, 2));
-                        add((1, 0, -1), (BACK, 0));
-                        add((1, 0, -1), (BACK, 3));
-
-                        add((1, 0, 1), (RIGHT, 0));
-                        add((1, 0, 1), (RIGHT, 3));
-                        add((1, 0, 1), (FRONT, 1));
-                        add((1, 0, 1), (FRONT, 2));
-
-                        add((-1, 0, 1), (LEFT, 1));
-                        add((-1, 0, 1), (LEFT, 2));
-                        add((-1, 0, 1), (FRONT, 0));
-                        add((-1, 0, 1), (FRONT, 3));
-
-                        // Z Edges
-                        add((-1, -1, 0), (LEFT, 0));
-                        add((-1, -1, 0), (LEFT, 1));
-                        add((-1, -1, 0), (BOTTOM, 0));
-                        add((-1, -1, 0), (BOTTOM, 3));
-
-                        add((1, -1, 0), (RIGHT, 0));
-                        add((1, -1, 0), (RIGHT, 1));
-                        add((1, -1, 0), (BOTTOM, 1));
-                        add((1, -1, 0), (BOTTOM, 2));
-
-                        add((1, 1, 0), (RIGHT, 2));
-                        add((1, 1, 0), (RIGHT, 3));
-                        add((1, 1, 0), (TOP, 1));
-                        add((1, 1, 0), (TOP, 2));
-
-                        add((-1, 1, 0), (LEFT, 2));
-                        add((-1, 1, 0), (LEFT, 3));
-                        add((-1, 1, 0), (TOP, 0));
-                        add((-1, 1, 0), (TOP, 3));
-
 
                         let mut ao_block = [[0; 4]; 6];
 
@@ -338,39 +345,18 @@ impl ChunkManager {
                                             if let Some(affected) = affected {
                                                 for &(face, vertex) in affected {
                                                     ao_block[face as usize][vertex as usize] += 1;
-                                                    // dbg!("hah");
                                                 }
                                             }
-
-
                                         }
                                     }
                                 }
                             }
                         }
                         ao_vec.push(ao_block);
-
-
-                        // let left = self.get_block(x - 1, y, z).filter(|&b| !b.is_transparent()).is_none();
-                        // let top = self.get_block(x, y + 1, z).filter(|&b| !b.is_transparent()).is_none();
-                        // let bottom = self.get_block(x, y - 1, z).filter(|&b| !b.is_transparent()).is_none();
-                        // let front = self.get_block(x, y, z + 1).filter(|&b| !b.is_transparent()).is_none();
-                        // let back = self.get_block(x, y, z - 1).filter(|&b| !b.is_transparent()).is_none();
-
-                        // Ambient Occlusion
-                        // let right = active_faces_of_block[0];
-                        // let left = active_faces_of_block[1];
-                        // let top = active_faces_of_block[2];
-                        // let bottom = active_faces_of_block[3];
-                        // let front = active_faces_of_block[4];
-                        // let back = active_faces_of_block[5];
                     }
                 }
             }
         }
-
-
-
 
         // Update the VBOs of the dirty chunks
         for chunk_coords in &dirty_chunks {
