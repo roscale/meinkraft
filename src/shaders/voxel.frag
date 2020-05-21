@@ -7,6 +7,7 @@ uniform sampler2D atlas;
 in VertexAttributes {
     vec3 frag_pos;
     vec2 texture_coords;
+    vec3 normal;
 } attrs;
 
 void main() {
@@ -15,4 +16,11 @@ void main() {
         discard;
     }
     Color = diffuse_frag;
+    if (attrs.normal.x != 0.0) {
+        Color.rgb *= 0.65;
+    } else if (attrs.normal.z != 0.0) {
+        Color.rgb *= 0.8;
+    } else if (attrs.normal.y != 0.0) {
+        Color.rgb *= 0.9;
+    }
 }

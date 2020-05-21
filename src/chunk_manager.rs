@@ -13,7 +13,7 @@ use std::ptr::null;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
-pub const CUBE_SIZE: u32 = 180;
+// pub const CUBE_SIZE: u32 = 180;
 
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
@@ -204,7 +204,7 @@ impl ChunkManager {
 
                 // Initialize the VBO
                 gl_call!(gl::NamedBufferData(chunk.vbo,
-                    (30 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                    (48 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
                     null(),
                     gl::DYNAMIC_DRAW));
 
@@ -227,7 +227,7 @@ impl ChunkManager {
                         // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
                         // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
                         chunk.vertices_drawn += copied_vertices;
-                        vbo_offset += copied_vertices as isize * 5; // 5 floats per vertex
+                        vbo_offset += copied_vertices as isize * 8; // 5 floats per vertex
                         j += 1;
                     }
 

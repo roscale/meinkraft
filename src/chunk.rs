@@ -61,12 +61,17 @@ fn create_vao_vbo() -> (u32, u32) {
     gl_call!(gl::VertexArrayAttribFormat(vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
     gl_call!(gl::VertexArrayAttribBinding(vao, 1, 0));
 
+    // Normals
+    gl_call!(gl::EnableVertexArrayAttrib(vao, 2));
+    gl_call!(gl::VertexArrayAttribFormat(vao, 2, 3 as i32, gl::FLOAT, gl::FALSE, 5 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribBinding(vao, 2, 0));
+
     let mut vbo = 0;
     gl_call!(gl::CreateBuffers(1, &mut vbo));
     // We intentionally don't initialize the buffer's data store because it's dynamically created
     // when the chunk is invalidated
 
-    gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (8 * std::mem::size_of::<f32>()) as i32));
     (vao, vbo)
 }
 
