@@ -43,6 +43,7 @@ pub mod types;
 pub mod gui;
 pub mod inventory;
 pub mod drawing;
+pub mod ambient_occlusion;
 
 fn main() {
     let (mut glfw, mut window, events) = create_window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_NAME);
@@ -94,7 +95,7 @@ fn main() {
 
     while !window.should_close() {
         // Get looking block coords
-        let looking_block = {
+        let targeted_block = {
             let is_solid_block_at = |x: i32, y: i32, z: i32| {
                 chunk_manager.is_solid_block_at(x, y, z)
             };
@@ -125,7 +126,7 @@ fn main() {
                 }
 
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
-                    if let &Some(((x, y, z), normal)) = &looking_block {
+                    if let &Some(((x, y, z), normal)) = &targeted_block {
                         match button {
                             MouseButton::Button1 => {
                                 chunk_manager.set_block(BlockID::Air, x, y, z);
@@ -181,7 +182,7 @@ fn main() {
         }
 
         // Block outline
-        if let Some(((x, y, z), _)) = looking_block {
+        if let Some(((x, y, z), _)) = targeted_block {
             let (x, y, z) = (x as f32, y as f32, z as f32);
             let model_matrix = Matrix4::new_translation(&vec3(x, y, z));
 

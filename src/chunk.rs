@@ -84,6 +84,8 @@ fn create_vao_vbo() -> (u32, u32) {
     // when the chunk is invalidated
 
     gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (9 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 9, (9 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (9 * std::mem::size_of::<f32>()) as i32));
     (vao, vbo)
 }
 

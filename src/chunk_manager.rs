@@ -10,6 +10,7 @@ use crate::block_texture_faces::BlockFaces;
 use rand::random;
 use crate::types::{UVCoords};
 use std::ptr::null;
+use crate::ambient_occlusion::compute_ao_of_block;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -161,147 +162,6 @@ impl ChunkManager {
             }
         }
 
-        let mut affected_corners: HashMap<(i32, i32, i32), Vec<(u8, u8)>> = HashMap::new();
-        let mut add = |k, v| {
-            affected_corners.entry(k).or_default().push(v);
-        };
-
-        const RIGHT: u8 = 0;
-        const LEFT: u8 = 1;
-        const TOP: u8 = 2;
-        const BOTTOM: u8 = 3;
-        const FRONT: u8 = 4;
-        const BACK: u8 = 5;
-
-        // Corners bottom
-        add((-1, -1, -1), (LEFT, 0));
-        add((-1, -1, -1), (BOTTOM, 0));
-        add((-1, -1, -1), (BACK, 1));
-
-        add((1, -1, -1), (RIGHT, 1));
-        add((1, -1, -1), (BOTTOM, 1));
-        add((1, -1, -1), (BACK, 0));
-
-        add((1, -1, 1), (RIGHT, 0));
-        add((1, -1, 1), (BOTTOM, 2));
-        add((1, -1, 1), (FRONT, 1));
-
-        add((-1, -1, 1), (LEFT, 1));
-        add((-1, -1, 1), (BOTTOM, 3));
-        add((-1, -1, 1), (FRONT, 0));
-
-        // Corners top
-        add((-1, 1, -1), (LEFT, 3));
-        add((-1, 1, -1), (TOP, 3));
-        add((-1, 1, -1), (BACK, 2));
-
-        add((1, 1, -1), (RIGHT, 2));
-        add((1, 1, -1), (TOP, 2));
-        add((1, 1, -1), (BACK, 3));
-
-        add((1, 1, 1), (RIGHT, 3));
-        add((1, 1, 1), (TOP, 1));
-        add((1, 1, 1), (FRONT, 2));
-
-        add((-1, 1, 1), (LEFT, 2));
-        add((-1, 1, 1), (TOP, 0));
-        add((-1, 1, 1), (FRONT, 3));
-
-        // X Edges
-        add((0, -1, -1), (BOTTOM, 0));
-        add((0, -1, -1), (BOTTOM, 1));
-        add((0, -1, -1), (BACK, 0));
-        add((0, -1, -1), (BACK, 1));
-
-        add((0, 1, -1), (TOP, 2));
-        add((0, 1, -1), (TOP, 3));
-        add((0, 1, -1), (BACK, 2));
-        add((0, 1, -1), (BACK, 3));
-
-        add((0, 1, 1), (TOP, 0));
-        add((0, 1, 1), (TOP, 1));
-        add((0, 1, 1), (FRONT, 2));
-        add((0, 1, 1), (FRONT, 3));
-
-        add((0, -1, 1), (BOTTOM, 2));
-        add((0, -1, 1), (BOTTOM, 3));
-        add((0, -1, 1), (FRONT, 0));
-        add((0, -1, 1), (FRONT, 1));
-
-        // Y Edges
-        add((-1, 0, -1), (LEFT, 0));
-        add((-1, 0, -1), (LEFT, 3));
-        add((-1, 0, -1), (BACK, 1));
-        add((-1, 0, -1), (BACK, 2));
-
-        add((1, 0, -1), (RIGHT, 1));
-        add((1, 0, -1), (RIGHT, 2));
-        add((1, 0, -1), (BACK, 0));
-        add((1, 0, -1), (BACK, 3));
-
-        add((1, 0, 1), (RIGHT, 0));
-        add((1, 0, 1), (RIGHT, 3));
-        add((1, 0, 1), (FRONT, 1));
-        add((1, 0, 1), (FRONT, 2));
-
-        add((-1, 0, 1), (LEFT, 1));
-        add((-1, 0, 1), (LEFT, 2));
-        add((-1, 0, 1), (FRONT, 0));
-        add((-1, 0, 1), (FRONT, 3));
-
-        // Z Edges
-        add((-1, -1, 0), (LEFT, 0));
-        add((-1, -1, 0), (LEFT, 1));
-        add((-1, -1, 0), (BOTTOM, 0));
-        add((-1, -1, 0), (BOTTOM, 3));
-
-        add((1, -1, 0), (RIGHT, 0));
-        add((1, -1, 0), (RIGHT, 1));
-        add((1, -1, 0), (BOTTOM, 1));
-        add((1, -1, 0), (BOTTOM, 2));
-
-        add((1, 1, 0), (RIGHT, 2));
-        add((1, 1, 0), (RIGHT, 3));
-        add((1, 1, 0), (TOP, 1));
-        add((1, 1, 0), (TOP, 2));
-
-        add((-1, 1, 0), (LEFT, 2));
-        add((-1, 1, 0), (LEFT, 3));
-        add((-1, 1, 0), (TOP, 0));
-        add((-1, 1, 0), (TOP, 3));
-
-        // Sides
-        add((-1, 0, 0), (LEFT, 0));
-        add((-1, 0, 0), (LEFT, 1));
-        add((-1, 0, 0), (LEFT, 2));
-        add((-1, 0, 0), (LEFT, 3));
-
-        add((1, 0, 0), (RIGHT, 0));
-        add((1, 0, 0), (RIGHT, 1));
-        add((1, 0, 0), (RIGHT, 2));
-        add((1, 0, 0), (RIGHT, 3));
-
-        add((0, -1, 0), (BOTTOM, 0));
-        add((0, -1, 0), (BOTTOM, 1));
-        add((0, -1, 0), (BOTTOM, 2));
-        add((0, -1, 0), (BOTTOM, 3));
-
-        add((0, 1, 0), (TOP, 0));
-        add((0, 1, 0), (TOP, 1));
-        add((0, 1, 0), (TOP, 2));
-        add((0, 1, 0), (TOP, 3));
-
-        add((0, 0, -1), (BACK, 0));
-        add((0, 0, -1), (BACK, 1));
-        add((0, 0, -1), (BACK, 2));
-        add((0, 0, -1), (BACK, 3));
-
-        add((0, 0, 1), (FRONT, 0));
-        add((0, 0, 1), (FRONT, 1));
-        add((0, 0, 1), (FRONT, 2));
-        add((0, 0, 1), (FRONT, 3));
-
-
         /*
             Optimization:
                 If 2 solid blocks are touching, don't render the faces where they touch.
@@ -313,14 +173,14 @@ impl ChunkManager {
         let mut active_faces: HashMap<ChunkCoords, Vec<Sides>> = HashMap::new();
 
         type CubeAO = [[u8; 4]; 6];
-        let mut ao: HashMap<ChunkCoords, Vec<CubeAO>> = HashMap::new();
+        let mut ao_chunks: HashMap<ChunkCoords, Vec<CubeAO>> = HashMap::new();
 
         for &coords in &dirty_chunks {
             let (c_x, c_y, c_z) = coords;
             let chunk = self.loaded_chunks.get(&coords);
             if let Some(chunk) = chunk {
                 let active_faces_vec = active_faces.entry(coords).or_default();
-                let ao_vec = ao.entry(coords).or_default();
+                let ao_chunk = ao_chunks.entry(coords).or_default();
 
                 for (b_x, b_y, b_z) in BlockIterator::new() {
                     let block = chunk.get_block(b_x, b_y, b_z);
@@ -330,29 +190,12 @@ impl ChunkManager {
                         active_faces_vec.push(active_faces_of_block);
 
                         // Ambient Occlusion
-                        let is_solid = |x: i32, y: i32, z: i32| {
-                            self.get_block(x, y, z).filter(|&b| !b.is_transparent_no_leaves()).is_some()
+                        let does_occlude = |x: i32, y: i32, z: i32| {
+                            self.get_block(g_x + x, g_y + y, g_z + z)
+                                .filter(|&b| !b.is_transparent_no_leaves())
+                                .is_some()
                         };
-
-                        let mut ao_block = [[0; 4]; 6];
-
-                        for x in -1..=1 {
-                            for y in -1..=1 {
-                                for z in -1..=1 {
-                                    if x != 0 || y != 0 || z != 0 {
-                                        if is_solid(g_x + x, g_y + y ,g_z + z) {
-                                            let affected = affected_corners.get(&(x, y, z));
-                                            if let Some(affected) = affected {
-                                                for &(face, vertex) in affected {
-                                                    ao_block[face as usize][vertex as usize] += 1;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        ao_vec.push(ao_block);
+                        ao_chunk.push(compute_ao_of_block(&does_occlude));
                     }
                 }
             }
@@ -387,7 +230,7 @@ impl ChunkManager {
                 let mut vbo_offset = 0;
 
                 let sides_vec = active_faces.get(&chunk_coords).unwrap();
-                let ao_vec = ao.get(&chunk_coords).unwrap();
+                let ao_vec = ao_chunks.get(&chunk_coords).unwrap();
                 let mut j = 0;
 
                 for (x, y, z) in BlockIterator::new() {
