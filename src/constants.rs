@@ -36,6 +36,7 @@ pub const REACH_DISTANCE: f32 = 400.0;
 pub const JUMP_HEIGHT: f32 = 1.3;
 pub const HORIZONTAL_ACCELERATION: f32 = 30.0;
 pub const WALKING_SPEED: f32 = 4.317;
+pub const FLYING_SPEED: f32 = 10.92;
 pub const ON_GROUND_FRICTION: f32 = 12.0;
 pub const IN_AIR_FRICTION: f32 = 2.0;
 
