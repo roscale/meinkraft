@@ -24,6 +24,7 @@ use crate::inventory::Inventory;
 use std::time::{Instant, Duration};
 use crate::physics::Interpolator;
 use timer::Timer;
+use crate::particle_system::ParticleSystem;
 
 #[macro_use]
 pub mod debugging;
@@ -48,6 +49,7 @@ pub mod inventory;
 pub mod drawing;
 pub mod ambient_occlusion;
 pub mod timer;
+pub mod particle_system;
 
 fn main() {
     let (mut glfw, mut window, events) = create_window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_NAME);
@@ -78,6 +80,7 @@ fn main() {
     let mut gui_shader = ShaderProgram::compile("src/shaders/gui.vert", "src/shaders/gui.frag");
     let mut outline_shader = ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag");
     let mut item_shader = ShaderProgram::compile("src/shaders/item.vert", "src/shaders/item.frag");
+    let mut particle_shader = ShaderProgram::compile("src/shaders/particle.vert", "src/shaders/particle.frag");
 
     let crosshair_vao = create_crosshair_vao();
     let block_outline_vao = create_block_outline_vao();
@@ -104,6 +107,8 @@ fn main() {
     let flying_trigger_interval = Duration::from_millis(250);
     let mut last_space = Instant::now();
     let mut space_throttle = false;
+
+    let mut particle_systems: Vec<ParticleSystem> = Vec::new();
 
     while !window.should_close() {
         // Get looking block coords
@@ -162,6 +167,7 @@ fn main() {
                             MouseButton::Button1 => {
                                 chunk_manager.set_block(BlockID::Air, x, y, z);
                                 println!("Destroyed block at ({} {} {})", x, y, z);
+                                particle_systems.push(ParticleSystem::new(vec3(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5)));
                             }
                             MouseButton::Button2 => {
                                 let adjacent_block = IVec3::new(x, y, z) + normal;
@@ -218,6 +224,18 @@ fn main() {
             gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
 
             chunk_manager.render_loaded_chunks(&mut voxel_shader);
+        }
+
+        {
+            gl_call!(gl::Disable(gl::CULL_FACE));
+            particle_shader.use_program();
+            particle_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
+            particle_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+
+            for particle_system in &mut particle_systems {
+                particle_system.render_all_particles(&mut particle_shader, global_timer.time(), &chunk_manager);
+            }
+            gl_call!(gl::Enable(gl::CULL_FACE));
         }
 
         // Block outline

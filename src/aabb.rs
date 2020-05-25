@@ -26,6 +26,12 @@ impl AABB {
             (self.mins.y < other.maxs.y && self.maxs.y > other.mins.y) &&
             (self.mins.z < other.maxs.z && self.maxs.z > other.mins.z)
     }
+
+    pub fn contains_point(&self, other: &Vec3) -> bool {
+        (self.mins.x < other.x && self.maxs.x > other.x) &&
+            (self.mins.y < other.y && self.maxs.y > other.y) &&
+            (self.mins.z < other.z && self.maxs.z > other.z)
+    }
 }
 
 /// Creates an AABB box at mins with a length of 1 in every dimension
