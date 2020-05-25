@@ -1,5 +1,3 @@
-use std::ops::{Add, Mul};
-
 use glfw::Key;
 use nalgebra::{Vector3, clamp};
 use nalgebra_glm::{vec2, Vec3, vec3, pi};
@@ -85,32 +83,6 @@ impl Interpolatable for PlayerPhysicsState {
         }
     }
 }
-
-// impl Mul<f32> for PlayerPhysicsState {
-//     type Output = PlayerPhysicsState;
-//
-//     fn mul(mut self, rhs: f32) -> Self::Output {
-//         self.position *= rhs;
-//         self.acceleration *= rhs;
-//         self.velocity *= rhs;
-//         self.aabb.maxs *= rhs;
-//         self.aabb.mins *= rhs;
-//         self
-//     }
-// }
-//
-// impl Add for PlayerPhysicsState {
-//     type Output = PlayerPhysicsState;
-//
-//     fn add(mut self, rhs: Self) -> Self::Output {
-//         self.position += rhs.position;
-//         self.acceleration += rhs.acceleration;
-//         self.velocity += rhs.velocity;
-//         self.aabb.maxs += rhs.aabb.maxs;
-//         self.aabb.mins += rhs.aabb.mins;
-//         self
-//     }
-// }
 
 impl PlayerPhysicsState {
     pub fn apply_keyboard_mouvement(&mut self, player_properties: &PlayerProperties, input_cache: &InputCache) {
@@ -268,6 +240,7 @@ impl PlayerPhysicsState {
             if speed > FLYING_SPEED {
                 horizontal_vel = horizontal_vel.scale(FLYING_SPEED / speed);
             }
+            self.velocity.y = clamp(self.velocity.y, -10.0, 10.0)
         } else {
             if speed > WALKING_SPEED {
                 horizontal_vel = horizontal_vel.scale(WALKING_SPEED / speed);

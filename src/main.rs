@@ -6,7 +6,7 @@ use std::os::raw::c_void;
 
 use glfw::{Action, Context, Key, MouseButton};
 use nalgebra::{Matrix4, Vector3};
-use nalgebra_glm::{IVec3, vec3, pi};
+use nalgebra_glm::{IVec3, vec3};
 
 use crate::aabb::get_block_aabb;
 use crate::chunk::BlockID;
@@ -101,7 +101,7 @@ fn main() {
 
     let mut input_cache = InputCache::default();
 
-    let mut flying_trigger_interval = Duration::from_millis(250);
+    let flying_trigger_interval = Duration::from_millis(250);
     let mut last_space = Instant::now();
     let mut space_throttle = false;
 
@@ -185,7 +185,7 @@ fn main() {
             }
         }
 
-        let player_physics_state = player_interpolator.update_player_physics(global_timer.time(), &input_cache, &chunk_manager, &player_properties);
+        let player_physics_state = player_interpolator.update_player_physics(global_timer.time(), &input_cache, &chunk_manager, &mut player_properties);
 
         chunk_manager.rebuild_dirty_chunks(&uv_map);
 
@@ -199,9 +199,8 @@ fn main() {
         let target_fov = if !player_properties.is_flying {
             FOV
         } else {
-            FOV + FOV * 0.1
+            FOV + FOV * 0.15
         };
-        let conv = 0.04;
         let fov = player_fov_interpolator.interpolate_fov(global_timer.time(), target_fov);
 
         let projection_matrix = nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, fov, NEAR_PLANE, FAR_PLANE);

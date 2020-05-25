@@ -50,7 +50,7 @@ impl<T: Clone + Interpolatable> Interpolator<T> {
     }
 
     /// Advances the physics for a given state.
-    pub fn step(&mut self, time: Instant, integrate: &dyn Fn(&T, f32, f32) -> T) -> T {
+    pub fn step(&mut self, time: Instant, integrate: &mut dyn FnMut(&T, f32, f32) -> T) -> T {
         let now = time;
         let mut frame_time = now.duration_since(self.current_time).as_secs_f32();
         if frame_time > 0.25 {
@@ -73,8 +73,8 @@ impl<T: Clone + Interpolatable> Interpolator<T> {
 
 impl Interpolator<PlayerPhysicsState> {
     /// Advances the physics for the player.
-    pub fn update_player_physics(&mut self, time: Instant, input_cache: &InputCache, chunk_manager: &ChunkManager, player_properties: &PlayerProperties) -> PlayerPhysicsState {
-        self.step(time, &|player: &PlayerPhysicsState, _t: f32, dt: f32| {
+    pub fn update_player_physics(&mut self, time: Instant, input_cache: &InputCache, chunk_manager: &ChunkManager, player_properties: &mut PlayerProperties) -> PlayerPhysicsState {
+        self.step(time, &mut |player: &PlayerPhysicsState, _t: f32, dt: f32| {
             let mut player = player.clone();
             if !player_properties.is_flying {
                 player.acceleration.y += GRAVITY;
@@ -104,6 +104,9 @@ impl Interpolator<PlayerPhysicsState> {
                 }
             }
             player.is_on_ground = is_player_on_ground;
+            if player.is_on_ground {
+                player_properties.is_flying = false;
+            }
 
             // Update the position of the player and reset the acceleration
             player.position.x = player.aabb.mins.x + PLAYER_HALF_WIDTH;
@@ -120,9 +123,9 @@ impl Interpolator<PlayerPhysicsState> {
 
 impl Interpolator<f32> {
     pub fn interpolate_fov(&mut self, time: Instant, target_fov: f32) -> f32 {
-        self.step(time, &|&fov, _t, dt| {
-            let conv = 10.0;
-            (conv * dt * target_fov + (1.0 - conv * dt) * fov)
+        self.step(time, &mut |&fov, _t, dt| {
+            let convergence = 10.0;
+            convergence * dt * target_fov + (1.0 - convergence * dt) * fov
         })
     }
 }
