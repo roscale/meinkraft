@@ -16,7 +16,7 @@ use crate::debugging::*;
 use crate::input::InputCache;
 use crate::player::{PlayerPhysicsState, PlayerProperties};
 use crate::shader_compilation::ShaderProgram;
-use crate::texture_pack::generate_texture_atlas;
+use crate::texture_pack::generate_array_texture;
 use crate::util::Forward;
 use crate::window::create_window;
 use crate::gui::{create_crosshair_vao, draw_crosshair, create_gui_icons_texture, create_block_outline_vao, create_widgets_texture, create_hotbar_vao, create_hotbar_selection_vao};
@@ -64,9 +64,8 @@ fn main() {
     gl_call!(gl::Enable(gl::BLEND));
     gl_call!(gl::Viewport(0, 0, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32));
 
-    let (atlas, uv_map) = generate_texture_atlas();
-    gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 0));
-    gl_call!(gl::BindTexture(gl::TEXTURE_2D, atlas));
+    let (item_array_texture, uv_map) = generate_array_texture();
+    gl_call!(gl::BindTextureUnit(0, item_array_texture));
 
     let gui_icons_texture = create_gui_icons_texture();
     gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 1));
@@ -101,6 +100,7 @@ fn main() {
 
     let mut chunk_manager = ChunkManager::new();
     chunk_manager.generate_terrain();
+    // chunk_manager.single();
 
     let mut input_cache = InputCache::default();
 
@@ -110,7 +110,21 @@ fn main() {
 
     let mut particle_systems: Vec<ParticleSystem> = Vec::new();
 
+    let mut nb_frames = 0;
+    let mut last_time = Instant::now();
+
     while !window.should_close() {
+            // Measure speed
+        let current_time = Instant::now();
+        nb_frames += 1;
+        if current_time.duration_since(last_time).as_secs_f32() >= 1.0 {
+            // printf and reset timer
+            println!("{} fps", nb_frames);
+            nb_frames = 0;
+            last_time = current_time;
+        }
+
+
         // Get looking block coords
         let targeted_block = {
             let is_solid_block_at = |x: i32, y: i32, z: i32| {
@@ -216,7 +230,7 @@ fn main() {
             voxel_shader.use_program();
             voxel_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
             voxel_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
-            voxel_shader.set_uniform1i("atlas", 0);
+            voxel_shader.set_uniform1i("array_texture", 0);
 
             let (r, g, b, a) = BACKGROUND_COLOR;
             gl_call!(gl::ClearColor(r, g, b, a));

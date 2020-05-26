@@ -6,10 +6,8 @@ use crate::chunk_manager::ChunkManager;
 use crate::physics::{Interpolatable, Interpolator};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::quad;
-use crate::timer::Timer;
 use nalgebra::Matrix4;
 use std::ffi::c_void;
-use std::ops::Add;
 use rand::random;
 use crate::aabb::get_block_aabb;
 use num_traits::Zero;
@@ -48,7 +46,7 @@ impl ParticleSystem {
 
         let mut particles = Vec::new();
 
-        for i in 0..20 {
+        for _ in 0..20 {
             let x = (random::<f32>() - 0.5) * 0.8;
             let y = (random::<f32>() - 0.5) * 0.8;
             let z = (random::<f32>() - 0.5) * 0.8;

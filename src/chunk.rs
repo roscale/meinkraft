@@ -65,17 +65,17 @@ fn create_vao_vbo() -> (u32, u32) {
 
     // Texture coords
     gl_call!(gl::EnableVertexArrayAttrib(vao, 1));
-    gl_call!(gl::VertexArrayAttribFormat(vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribFormat(vao, 1, 3 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
     gl_call!(gl::VertexArrayAttribBinding(vao, 1, 0));
 
     // Normals
     gl_call!(gl::EnableVertexArrayAttrib(vao, 2));
-    gl_call!(gl::VertexArrayAttribFormat(vao, 2, 3 as i32, gl::FLOAT, gl::FALSE, 5 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribFormat(vao, 2, 3 as i32, gl::FLOAT, gl::FALSE, 6 * std::mem::size_of::<f32>() as u32));
     gl_call!(gl::VertexArrayAttribBinding(vao, 2, 0));
 
     // Ambient occlusion
     gl_call!(gl::EnableVertexArrayAttrib(vao, 3));
-    gl_call!(gl::VertexArrayAttribFormat(vao, 3, 1 as i32, gl::FLOAT, gl::FALSE, 8 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribFormat(vao, 3, 1 as i32, gl::FLOAT, gl::FALSE, 9 * std::mem::size_of::<f32>() as u32));
     gl_call!(gl::VertexArrayAttribBinding(vao, 3, 0));
 
     let mut vbo = 0;
@@ -83,7 +83,7 @@ fn create_vao_vbo() -> (u32, u32) {
     // We intentionally don't initialize the buffer's data store because it's dynamically created
     // when the chunk is invalidated
 
-    gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (9 * std::mem::size_of::<f32>()) as i32));
+    gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (10 * std::mem::size_of::<f32>()) as i32));
     (vao, vbo)
 }
 

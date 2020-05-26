@@ -2,10 +2,10 @@
 
 out vec4 Color;
 
-uniform sampler2D tex;
+uniform sampler2DArray tex;
 
 in VertexAttributes {
-    vec2 texture_coords;
+    vec3 texture_coords;
     vec3 normal;
 } attrs;
 

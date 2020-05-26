@@ -6,9 +6,8 @@ use nalgebra::Matrix4;
 use std::borrow::Borrow;
 use crate::shapes::{write_unit_cube_to_ptr};
 use noise::{SuperSimplex, NoiseFn, Point2};
-use crate::block_texture_faces::BlockFaces;
 use rand::random;
-use crate::types::{UVCoords};
+use crate::types::UVMap;
 use std::ptr::null;
 use crate::ambient_occlusion::compute_ao_of_block;
 
@@ -98,7 +97,8 @@ impl ChunkManager {
     }
 
     pub fn single(&mut self) {
-        self.loaded_chunks.insert((0, 0, 0), Chunk::full_of_block(BlockID::Cobblestone));
+        self.loaded_chunks.insert((0, 0, 0), Chunk::empty());
+        self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
     // Transform global block coordinates into chunk local coordinates
@@ -149,7 +149,7 @@ impl ChunkManager {
     // uv_map: the UV coordinates of all the block's faces
     // UV coordinates are composed of 4 floats, the first 2 are the bottom left corner and the last 2 are the top right corner (all between 0.0 and 1.0)
     // These specify the subtexture to use when rendering
-    pub fn rebuild_dirty_chunks(&mut self, uv_map: &HashMap<BlockID, BlockFaces<UVCoords>>) {
+    pub fn rebuild_dirty_chunks(&mut self, uv_map: &UVMap) {
         // Collect all the dirty chunks
         // Nearby chunks can be also dirty if the change happens at the edge
         let mut dirty_chunks: HashSet<(i32, i32, i32)> = HashSet::new();
@@ -221,7 +221,7 @@ impl ChunkManager {
 
                 // Initialize the VBO
                 gl_call!(gl::NamedBufferData(chunk.vbo,
-                    (6 * 9 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                    (6 * 10 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
                     null(),
                     gl::DYNAMIC_DRAW));
 
@@ -246,7 +246,7 @@ impl ChunkManager {
                         // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
                         // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
                         chunk.vertices_drawn += copied_vertices;
-                        vbo_offset += copied_vertices as isize * 9; // 5 floats per vertex
+                        vbo_offset += copied_vertices as isize * 10; // 5 floats per vertex
                         j += 1;
                     }
 

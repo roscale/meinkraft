@@ -42,12 +42,12 @@ impl ItemRender {
 
         // Texture coords
         gl_call!(gl::EnableVertexArrayAttrib(vao, 1));
-        gl_call!(gl::VertexArrayAttribFormat(vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+        gl_call!(gl::VertexArrayAttribFormat(vao, 1, 3 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
         gl_call!(gl::VertexArrayAttribBinding(vao, 1, 0));
 
         // Normals
         gl_call!(gl::EnableVertexArrayAttrib(vao, 2));
-        gl_call!(gl::VertexArrayAttribFormat(vao, 2, 3 as i32, gl::FLOAT, gl::FALSE, 5 * std::mem::size_of::<f32>() as u32));
+        gl_call!(gl::VertexArrayAttribFormat(vao, 2, 3 as i32, gl::FLOAT, gl::FALSE, 6 * std::mem::size_of::<f32>() as u32));
         gl_call!(gl::VertexArrayAttribBinding(vao, 2, 0));
 
         let mut vbo = 0;
@@ -61,7 +61,7 @@ impl ItemRender {
                     vbo_data.as_ptr() as *const c_void,
                     gl::STATIC_DRAW));
 
-        gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (8 * std::mem::size_of::<f32>()) as i32));
+        gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (9 * std::mem::size_of::<f32>()) as i32));
 
         let projection_matrix = nalgebra_glm::ortho(
             0.0, WINDOW_WIDTH as f32, 0.0, WINDOW_HEIGHT as f32, -1000.0, 1000.0);

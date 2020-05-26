@@ -2,11 +2,11 @@
 
 out vec4 Color;
 
-uniform sampler2D atlas;
+uniform sampler2DArray array_texture;
 
 in VertexAttributes {
     vec3 frag_pos;
-    vec2 texture_coords;
+    vec3 texture_coords;
     vec3 normal;
     float ao;
 } attrs;
@@ -14,7 +14,7 @@ in VertexAttributes {
 //const
 
 void main() {
-    vec4 diffuse_frag = texture(atlas, attrs.texture_coords);
+    vec4 diffuse_frag = texture(array_texture, attrs.texture_coords);
     if (diffuse_frag.a == 0) {
         discard;
     }

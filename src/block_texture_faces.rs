@@ -1,4 +1,4 @@
-use crate::types::{UVCoords, UVFaces};
+use crate::types::{UVFaces, TextureLayer};
 
 #[derive(Copy, Clone)]
 pub enum BlockFaces<T> {
@@ -9,7 +9,7 @@ pub enum BlockFaces<T> {
 
 /// Unpacks a BlockFaces<UVCoords> instance and returns a tuple of UV coordinates
 /// for each face of the block
-impl BlockFaces<UVCoords> {
+impl BlockFaces<TextureLayer> {
     pub fn get_uv_of_every_face(&self) -> UVFaces {
         match self {
             &BlockFaces::All(uv) => (uv, uv, uv, uv, uv, uv),

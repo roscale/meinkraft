@@ -5,13 +5,13 @@ uniform mat4 view;
 uniform mat4 projection;
 
 layout (location = 0) in vec3 pos;
-layout (location = 1) in vec2 texture_coords;
+layout (location = 1) in vec3 texture_coords;
 layout (location = 2) in vec3 normal;
 layout (location = 3) in float ao;
 
 out VertexAttributes {
     vec3 frag_pos;
-    vec2 texture_coords;
+    vec3 texture_coords;
     vec3 normal;
     float ao;
 } attrs;

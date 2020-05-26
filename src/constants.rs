@@ -24,7 +24,7 @@ pub const GRAVITY: f32 = -28.0;
 pub const MAX_VERTICAL_VELOCITY: f32 = 90.0;
 
 // Texture pack
-pub const TEXTURE_ATLAS_SIZE: u32 = 1024;
+pub const ITEM_ARRAY_TEXTURE_LAYERS: u32 = 50;
 pub const BLOCK_TEXTURE_SIZE: u32 = 16;
 
 // Some values are taken from the minecraft gamepedia
