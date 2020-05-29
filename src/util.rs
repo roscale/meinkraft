@@ -13,3 +13,13 @@ impl Forward for Vec3 {
         )
     }
 }
+
+pub trait Zero {
+    fn zero() -> Self;
+}
+
+impl Zero for Vec3 {
+    fn zero() -> Self {
+        vec3(0., 0., 0.)
+    }
+}

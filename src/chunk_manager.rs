@@ -190,12 +190,26 @@ impl ChunkManager {
                         active_faces_vec.push(active_faces_of_block);
 
                         // Ambient Occlusion
-                        let does_occlude = |x: i32, y: i32, z: i32| {
-                            self.get_block(g_x + x, g_y + y, g_z + z)
-                                .filter(|&b| !b.is_transparent_no_leaves())
-                                .is_some()
+                        
+                        // Optimisation
+                        // If the block is not at the edge of the chunk then we
+                        // can skip the chunk manager and iterate through the blocks
+                        // of the same chunk
+                        if b_x > 0 && b_x < 15 && b_y > 0 && b_y < 15 && b_z > 0 && b_z < 15 {
+                            let chunk = self.loaded_chunks.get(&(c_x, c_y, c_z)).unwrap();
+                            let does_occlude = |x: i32, y: i32, z: i32| {
+                                !chunk.get_block((b_x as i32 + x) as u32, (b_y as i32 + y) as u32, (b_z as i32 + z) as u32).is_transparent_no_leaves()
+                            };
+                            ao_chunk.push(compute_ao_of_block(&does_occlude));
+
+                        } else {
+                            let does_occlude = |x: i32, y: i32, z: i32| {
+                                self.get_block(g_x + x, g_y + y, g_z + z)
+                                    .filter(|&b| !b.is_transparent_no_leaves())
+                                    .is_some()
+                            };
+                            ao_chunk.push(compute_ao_of_block(&does_occlude));
                         };
-                        ao_chunk.push(compute_ao_of_block(&does_occlude));
                     }
                 }
             }

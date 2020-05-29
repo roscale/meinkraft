@@ -2,11 +2,13 @@
 
 out vec4 Color;
 
+uniform sampler2DArray array_texture;
+
 in VertexAttributes {
-    vec2 texture_coords;
+    vec3 texture_coords;
 } attrs;
 
 void main() {
-    vec4 diffuse_frag = vec4(1.0, 1.0, 1.0, 1.0);
+    vec4 diffuse_frag = texture(array_texture, attrs.texture_coords);
     Color = diffuse_frag;
 }

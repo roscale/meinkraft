@@ -6,7 +6,7 @@ use std::os::raw::c_void;
 
 use glfw::{Action, Context, Key, MouseButton};
 use nalgebra::{Matrix4, Vector3};
-use nalgebra_glm::{IVec3, vec3};
+use nalgebra_glm::{IVec3, vec3, Vec3};
 
 use crate::aabb::get_block_aabb;
 use crate::chunk::BlockID;
@@ -24,7 +24,9 @@ use crate::inventory::Inventory;
 use std::time::{Instant, Duration};
 use crate::physics::Interpolator;
 use timer::Timer;
-use crate::particle_system::ParticleSystem;
+use crate::particle_system::{ParticleSystem, ParticleProps};
+use rand::random;
+use std::collections::HashMap;
 
 #[macro_use]
 pub mod debugging;
@@ -108,13 +110,14 @@ fn main() {
     let mut last_space = Instant::now();
     let mut space_throttle = false;
 
-    let mut particle_systems: Vec<ParticleSystem> = Vec::new();
+    let mut particle_systems: HashMap<&str, ParticleSystem> = HashMap::new();
+    particle_systems.insert("block_particles", ParticleSystem::new(500));
 
     let mut nb_frames = 0;
     let mut last_time = Instant::now();
 
     while !window.should_close() {
-            // Measure speed
+        // Measure speed
         let current_time = Instant::now();
         nb_frames += 1;
         if current_time.duration_since(last_time).as_secs_f32() >= 1.0 {
@@ -132,7 +135,7 @@ fn main() {
             };
 
             let fw = player_properties.rotation.forward();
-            let player = player_interpolator.get_current_state();
+            let player = player_interpolator.get_latest_state();
             raycast::raycast(
                 &is_solid_block_at,
                 &player.get_camera_position(),
@@ -179,9 +182,13 @@ fn main() {
                     if let &Some(((x, y, z), normal)) = &targeted_block {
                         match button {
                             MouseButton::Button1 => {
+                                let block = chunk_manager.get_block(x, y, z).unwrap();
                                 chunk_manager.set_block(BlockID::Air, x, y, z);
+
+                                let block_particles = particle_systems.get_mut("block_particles").unwrap();
+                                block_particles.spawn_block_breaking_particles(vec3(x as f32, y as f32, z as f32), &uv_map, block);
+
                                 println!("Destroyed block at ({} {} {})", x, y, z);
-                                particle_systems.push(ParticleSystem::new(vec3(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5)));
                             }
                             MouseButton::Button2 => {
                                 let adjacent_block = IVec3::new(x, y, z) + normal;
@@ -189,7 +196,7 @@ fn main() {
                                     adjacent_block.x as f32,
                                     adjacent_block.y as f32,
                                     adjacent_block.z as f32));
-                                let player = player_interpolator.get_current_state();
+                                let player = player_interpolator.get_latest_state();
                                 if !player.aabb.intersects(&adjacent_block_aabb) {
                                     if let Some(block) = inventory.get_selected_item() {
                                         chunk_manager.set_block(block, adjacent_block.x, adjacent_block.y, adjacent_block.z);
@@ -205,7 +212,8 @@ fn main() {
             }
         }
 
-        let player_physics_state = player_interpolator.update_player_physics(global_timer.time(), &input_cache, &chunk_manager, &mut player_properties);
+        player_interpolator.update_player_physics(global_timer.time(), &input_cache, &chunk_manager, &mut player_properties);
+        let player_physics_state = player_interpolator.get_interpolated_state();
 
         chunk_manager.rebuild_dirty_chunks(&uv_map);
 
@@ -221,7 +229,8 @@ fn main() {
         } else {
             FOV + FOV * 0.15
         };
-        let fov = player_fov_interpolator.interpolate_fov(global_timer.time(), target_fov);
+        player_fov_interpolator.interpolate_fov(global_timer.time(), target_fov);
+        let fov = *player_fov_interpolator.get_interpolated_state();
 
         let projection_matrix = nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, fov, NEAR_PLANE, FAR_PLANE);
 
@@ -243,11 +252,13 @@ fn main() {
         {
             gl_call!(gl::Disable(gl::CULL_FACE));
             particle_shader.use_program();
-            particle_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
-            particle_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+            // particle_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
+            // particle_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+            particle_shader.set_uniform1i("array_texture", 0);
 
-            for particle_system in &mut particle_systems {
-                particle_system.render_all_particles(&mut particle_shader, global_timer.time(), &chunk_manager);
+            for particle_system in particle_systems.values_mut() {
+                particle_system.update_all_particles(global_timer.time(), &chunk_manager);
+                particle_system.render_all_particles(&mut particle_shader, &view_matrix, &projection_matrix);
             }
             gl_call!(gl::Enable(gl::CULL_FACE));
         }

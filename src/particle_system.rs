@@ -1,82 +1,134 @@
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
-use nalgebra_glm::{Mat4, Vec3, vec3};
+use nalgebra_glm::{Mat4, Vec3, vec3, vec4};
 
 use crate::chunk_manager::ChunkManager;
 use crate::physics::{Interpolatable, Interpolator};
 use crate::shader_compilation::ShaderProgram;
-use crate::shapes::quad;
+use crate::shapes::quad_array_texture;
 use nalgebra::Matrix4;
 use std::ffi::c_void;
 use rand::random;
 use crate::aabb::get_block_aabb;
 use num_traits::Zero;
+use crate::chunk::BlockID;
+use crate::types::UVMap;
+use std::ptr::null;
+use itertools::Itertools;
 
 pub struct ParticleSystem {
-    position: Vec3,
-    particles: Vec<Interpolator<ParticlePhysicsProperties>>,
+    _max_particles: usize,
+    particles: Vec<Particle>,
+    index_available: usize,
+    last_updated: Instant,
     vao: u32,
     vbo: u32,
 }
 
 impl ParticleSystem {
-    pub fn new(position: Vec3) -> ParticleSystem {
+    pub fn new(max_instances: usize) -> ParticleSystem {
+        // Allocate VRAM for max_instances particles
         let mut vao = 0;
         gl_call!(gl::CreateVertexArrays(1, &mut vao));
 
         // Position
         gl_call!(gl::EnableVertexArrayAttrib(vao, 0));
-        gl_call!(gl::VertexArrayAttribFormat(vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
+        gl_call!(gl::VertexArrayAttribFormat(vao, 0, 4 as i32, gl::FLOAT, gl::FALSE, 0));
         gl_call!(gl::VertexArrayAttribBinding(vao, 0, 0));
 
         // Texture coords
         gl_call!(gl::EnableVertexArrayAttrib(vao, 1));
-        gl_call!(gl::VertexArrayAttribFormat(vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+        gl_call!(gl::VertexArrayAttribFormat(vao, 1, 3 as i32, gl::FLOAT, gl::FALSE, (4 * std::mem::size_of::<f32>()) as u32));
         gl_call!(gl::VertexArrayAttribBinding(vao, 1, 0));
 
-        let quad = quad((0.0, 0.0, 0.0, 0.0));
-
-        let mut vbo = 0;
-        gl_call!(gl::CreateBuffers(1, &mut vbo));
-        gl_call!(gl::NamedBufferData(vbo,
-                    (quad.len() * std::mem::size_of::<f32>() as usize) as isize,
-                    quad.as_ptr() as *const c_void,
-                    gl::STATIC_DRAW));
-        gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
-
-        let mut particles = Vec::new();
-
-        for _ in 0..20 {
-            let x = (random::<f32>() - 0.5) * 0.8;
-            let y = (random::<f32>() - 0.5) * 0.8;
-            let z = (random::<f32>() - 0.5) * 0.8;
-
-            let vx = (x) * 5.0;
-            let vy = (y) * 20.0;
-            let vz = (z) * 5.0;
-
-            particles.push(Interpolator::new(1.0 / 30.0, ParticlePhysicsProperties {
-                position: vec3(x, y, z) + position,
-                velocity: vec3(vx, vy, vz),
-                acceleration: vec3(0.0, -30.0, 0.0),
-            }));
-        }
+        // Pos and tex coords interleaved
+        let vbo = {
+            let mut vbo = 0;
+            gl_call!(gl::CreateBuffers(1, &mut vbo));
+            gl_call!(gl::NamedBufferData(vbo,
+                    (max_instances * 6 * 7 * std::mem::size_of::<f32>() as usize) as isize,
+                    null(),
+                    gl::DYNAMIC_DRAW));
+            gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (7 * std::mem::size_of::<f32>()) as i32));
+            vbo
+        };
 
         ParticleSystem {
-            position,
-            particles,
+            _max_particles: max_instances,
+            particles: {
+                let mut vec = Vec::new();
+                vec.resize_with(max_instances, Particle::default);
+                vec
+            },
+            index_available: max_instances - 1,
+            last_updated: Instant::now(),
             vao,
             vbo,
         }
     }
 
-    pub fn render_all_particles(&mut self, shader: &mut ShaderProgram, time: Instant, chunk_manager: &ChunkManager) {
-        let mut states = Vec::new();
-        for p in &mut self.particles {
-            states.push(p.update_particle(time, chunk_manager));
-        }
+    pub fn emit(&mut self, particle_props: &ParticleProps, uv_map: &UVMap, block: BlockID) {
+        let get_texture_coords = |uv: (f32, f32, f32, f32), layer: f32| {
+            (&[
+                uv.0, uv.1, layer,
+                uv.2, uv.1, layer,
+                uv.2, uv.3, layer,
+                uv.2, uv.3, layer,
+                uv.0, uv.3, layer,
+                uv.0, uv.1, layer,
+            ]).to_vec()
+        };
 
-        for state in states {
+        self.particles[self.index_available] = Particle {
+            active: true,
+            physics_properties: Interpolator::new(1. / 30., ParticlePhysicsProperties {
+                position: particle_props.position,
+                velocity: particle_props.velocity,
+                acceleration: particle_props.acceleration,
+            }),
+            tex_coords: {
+                let uvx = random::<f32>();
+                let uvy = random::<f32>();
+                let uv = (uvx, uvy, uvx + 0.2, uvy + 0.2);
+
+                get_texture_coords(uv, uv_map.get(&block).unwrap().get_uv_of_every_face().0 as f32)
+                // get_texture_coords((0.0, 0.0, 1.0, 1.0), uv_map.get(&block).unwrap().get_uv_of_every_face().0 as f32)
+            },
+            scale: particle_props.scale,
+            _life_time: particle_props.life_time,
+            life_remaining: particle_props.life_time,
+        };
+
+        self.index_available = if self.index_available == 0 {
+            self.particles.len() - 1
+        } else {
+            self.index_available - 1
+        };
+    }
+
+    pub fn update_all_particles(&mut self, time: Instant, chunk_manager: &ChunkManager) {
+        let time_passed = time.saturating_duration_since(self.last_updated);
+        self.last_updated = time;
+
+        for p in &mut self.particles.iter_mut().filter(|p| p.active) {
+            if let Some(life_remaining) = p.life_remaining.checked_sub(time_passed) {
+                p.life_remaining = life_remaining;
+            } else {
+                p.active = false;
+                continue;
+            }
+            p.physics_properties.update_particle(time, chunk_manager);
+        }
+    }
+
+    pub fn render_all_particles(&mut self, _shader: &mut ShaderProgram, view_matrix: &Mat4, projection_matrix: &Mat4) {
+        let mut vbo_data: Vec<f32> = Vec::new();
+
+        // Prepare the VBOs
+        let mut active_particles = 0;
+        for particle in self.particles.iter().filter(|p| p.active) {
+            active_particles += 1;
+            let state = particle.physics_properties.get_interpolated_state();
             let model_matrix = {
                 let translate_matrix = Matrix4::new_translation(&state.position);
                 let rotate_matrix = Matrix4::from_euler_angles(
@@ -84,15 +136,46 @@ impl ParticleSystem {
                     0.0,
                     0.0,
                 );
-                let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(0.5f32, 0.5f32, 0.5f32));
-                translate_matrix * rotate_matrix * scale_matrix
+                translate_matrix * rotate_matrix
             };
 
+            let mut model_view: Mat4 = view_matrix * model_matrix;
+            model_view.m11 = particle.scale.x;
+            model_view.m12 = 0.;
+            model_view.m13 = 0.;
 
-            gl_call!(gl::BindVertexArray(self.vao));
-            shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 6));
+            model_view.m21 = 0.;
+            model_view.m22 = particle.scale.y;
+            model_view.m23 = 0.;
+
+            model_view.m31 = 0.;
+            model_view.m32 = 0.;
+            model_view.m33 = particle.scale.z;
+
+            let mvp = projection_matrix * model_view;
+
+            let quad = quad_array_texture();
+            let pos_chunks = quad.iter().chunks(3);
+            let tex_chunks = particle.tex_coords.iter().chunks(3);
+            let quad_vertices = pos_chunks.into_iter().zip(&tex_chunks);
+            for (mut pos, tex) in quad_vertices {
+                let pos = vec4(
+                    *pos.next().unwrap(),
+                    *pos.next().unwrap(),
+                    *pos.next().unwrap(),
+                    1.0);
+                vbo_data.extend(&(mvp * pos));
+                vbo_data.extend(tex);
+            }
         }
+
+        gl_call!(gl::NamedBufferSubData(self.vbo,
+                    0,
+                    (vbo_data.len() * std::mem::size_of::<f32>()) as isize,
+                    vbo_data.as_ptr() as *mut c_void));
+
+        gl_call!(gl::BindVertexArray(self.vao));
+        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 6 * active_particles));
     }
 }
 
@@ -101,6 +184,16 @@ pub struct ParticlePhysicsProperties {
     pub position: Vec3,
     velocity: Vec3,
     acceleration: Vec3,
+}
+
+impl Default for ParticlePhysicsProperties {
+    fn default() -> Self {
+        Self {
+            position: Vec3::zero(),
+            velocity: Vec3::zero(),
+            acceleration: Vec3::zero(),
+        }
+    }
 }
 
 impl Interpolatable for ParticlePhysicsProperties {
@@ -118,7 +211,7 @@ impl Interpolatable for ParticlePhysicsProperties {
 }
 
 impl Interpolator<ParticlePhysicsProperties> {
-    fn update_particle(&mut self, time: Instant, chunk_manager: &ChunkManager) -> ParticlePhysicsProperties {
+    fn update_particle(&mut self, time: Instant, chunk_manager: &ChunkManager) {
         self.step(time, &mut |state, _t, dt| {
             let mut state = state.clone();
             state.velocity += state.acceleration * dt;
@@ -144,7 +237,7 @@ impl Interpolator<ParticlePhysicsProperties> {
                         let block_aabb = get_block_aabb(&vec3(
                             containing_block.x as f32,
                             containing_block.y as f32,
-                            containing_block.z as f32
+                            containing_block.z as f32,
                         ));
                         colliding_block_aabb = Some(block_aabb);
                     }
@@ -187,6 +280,61 @@ impl Interpolator<ParticlePhysicsProperties> {
             state.velocity.z *= 0.8;
 
             state
-        })
+        });
+    }
+}
+
+pub struct ParticleProps {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub acceleration: Vec3,
+    pub life_time: Duration,
+    pub scale: Vec3,
+}
+
+struct Particle {
+    active: bool,
+    physics_properties: Interpolator<ParticlePhysicsProperties>,
+    tex_coords: Vec<f32>,
+    scale: Vec3,
+    _life_time: Duration,
+    life_remaining: Duration,
+}
+
+impl Default for Particle {
+    fn default() -> Self {
+        Particle {
+            active: false,
+            physics_properties: Interpolator::default(),
+            tex_coords: Vec::default(),
+            scale: Vec3::zero(),
+            _life_time: Default::default(),
+            life_remaining: Default::default(),
+        }
+    }
+}
+
+impl ParticleSystem {
+    pub fn spawn_block_breaking_particles(&mut self, pos: Vec3, uv_map: &UVMap, block: BlockID) {
+        let instances = 30;
+        for _ in 0..instances {
+            let offset_x = (random::<f32>() - 0.5) * 0.8;
+            let offset_y = (random::<f32>() - 0.5) * 0.8;
+            let offset_z = (random::<f32>() - 0.5) * 0.8;
+
+            let vx = offset_x * 5.0;
+            let vy = offset_y * 20.0;
+            let vz = offset_z * 5.0;
+
+            let life_time = random::<u64>() % 500 + 500;
+
+            self.emit(&ParticleProps {
+                position: pos + vec3(0.5, 0.5, 0.5) + vec3(offset_x, offset_y, offset_z),
+                velocity: vec3(vx, vy, vz),
+                acceleration: vec3(0.0, -30.0, 0.0),
+                life_time: Duration::from_millis(life_time),
+                scale: Vec3::new(0.2, 0.2, 0.2),
+            }, &uv_map, block);
+        }
     }
 }

@@ -12,6 +12,17 @@ pub fn quad(uv: (f32, f32, f32, f32)) -> Vec<f32> {
     ]).to_vec()
 }
 
+pub fn quad_array_texture() -> Vec<f32> {
+    (&[
+        -0.5f32, -0.5, 0.0,
+        0.5, -0.5, 0.0,
+        0.5, 0.5, 0.0,
+        0.5, 0.5, 0.0,
+        -0.5, 0.5, 0.0,
+        -0.5, -0.5, 0.0,
+    ]).to_vec()
+}
+
 // bl = bottom left
 // tr = top right
 // Creates and write the vertices of a cube directly into "ptr" (usually a VBO mapped to virtual memory)
