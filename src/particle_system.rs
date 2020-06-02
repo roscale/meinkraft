@@ -316,25 +316,37 @@ impl Default for Particle {
 
 impl ParticleSystem {
     pub fn spawn_block_breaking_particles(&mut self, pos: Vec3, uv_map: &UVMap, block: BlockID) {
-        let instances = 30;
-        for _ in 0..instances {
-            let offset_x = (random::<f32>() - 0.5) * 0.8;
-            let offset_y = (random::<f32>() - 0.5) * 0.8;
-            let offset_z = (random::<f32>() - 0.5) * 0.8;
+        let block_center = pos + vec3(0.5, 0.5, 0.5);
+        let half_spacing = 1.0 / 8.0;
 
-            let vx = offset_x * 5.0;
-            let vy = offset_y * 20.0;
-            let vz = offset_z * 5.0;
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    let particle_pos = pos
+                        + vec3(half_spacing, half_spacing, half_spacing)
+                        + vec3(
+                        x as f32 * 2.0 * half_spacing,
+                        y as f32 * 2.0 * half_spacing,
+                        z as f32 * 2.0 * half_spacing);
 
-            let life_time = random::<u64>() % 500 + 500;
-
-            self.emit(&ParticleProps {
-                position: pos + vec3(0.5, 0.5, 0.5) + vec3(offset_x, offset_y, offset_z),
-                velocity: vec3(vx, vy, vz),
-                acceleration: vec3(0.0, -30.0, 0.0),
-                life_time: Duration::from_millis(life_time),
-                scale: Vec3::new(0.2, 0.2, 0.2),
-            }, &uv_map, block);
+                    self.emit(&ParticleProps {
+                        position: particle_pos,
+                        velocity: {
+                            let from_center = particle_pos - block_center;
+                            let vx = from_center.x * 5.0 + 4.0 * random::<f32>() - 2.0;
+                            let vy = from_center.y * 10.0 + 4.0 * random::<f32>() - 2.0;
+                            let vz = from_center.z * 5.0 + 4.0 * random::<f32>() - 2.0;
+                            vec3(vx, vy, vz)
+                        },
+                        acceleration: vec3(0.0, -30.0, 0.0),
+                        life_time: Duration::from_millis(100 + random::<u64>() % 750),
+                        scale: {
+                            let size = 0.1 + random::<f32>() * 1.5 / 10.0;
+                            Vec3::new(size, size, size)
+                        },
+                    }, &uv_map, block);
+                }
+            }
         }
     }
 }
