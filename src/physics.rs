@@ -8,6 +8,7 @@ use crate::constants::GRAVITY;
 use crate::input::InputCache;
 use crate::player::{PlayerPhysicsState, PlayerProperties};
 use std::time::Instant;
+use num_traits::Zero;
 
 /// Fixed timestep physics simulation using the following method:
 /// https://gafferongames.com/post/fix_your_timestep/
@@ -97,22 +98,49 @@ impl Interpolator<PlayerPhysicsState> {
             player.apply_friction(dt, player_properties.is_flying);
             player.limit_velocity(&player_properties);
 
+            let is_on_ground = |player: &PlayerPhysicsState| {
+                let mut player = player.clone();
+                let vy = vec3(0.0, player.velocity.y, 0.0);
+                player.aabb.ip_translate(&(vy * dt));
+                let colliding_block = player.get_colliding_block_coords(&chunk_manager);
+                if let Some(colliding_block) = colliding_block {
+                    player.separate_from_block(&vy, &colliding_block)
+                } else {
+                    false
+                }
+            };
+
             // We are using the Separated Axis Theorem
             // We decompose the velocity vector into 3 vectors for each dimension
             // For each one, we move the entity and do the collision detection/resolution
             let mut is_player_on_ground = false;
             let separated_axis = &[
                 vec3(player.velocity.x, 0.0, 0.0),
-                vec3(0.0, player.velocity.y, 0.0),
-                vec3(0.0, 0.0, player.velocity.z)];
+                vec3(0.0, 0.0, player.velocity.z),
+                vec3(0.0, player.velocity.y, 0.0)];
 
             for v in separated_axis {
+                let bk = player.clone();
                 player.aabb.ip_translate(&(v * dt));
                 let colliding_block = player.get_colliding_block_coords(&chunk_manager);
 
                 // Collision resolution
                 if let Some(colliding_block) = colliding_block {
                     is_player_on_ground |= player.separate_from_block(&v, &colliding_block);
+                }
+
+                if input_cache.is_key_pressed(glfw::Key::LeftShift)
+                    && player.is_on_ground
+                    && !is_on_ground(&player)
+                    && player.velocity.y < 0. {
+                    player = bk;
+
+                    if !v.x.is_zero() {
+                        player.velocity.x = 0.0;
+                    }
+                    if !v.z.is_zero() {
+                        player.velocity.z = 0.0;
+                    }
                 }
             }
             player.is_on_ground = is_player_on_ground;
@@ -138,6 +166,15 @@ impl Interpolator<f32> {
         self.step(time, &mut |&fov, _t, dt| {
             let convergence = 10.0;
             convergence * dt * target_fov + (1.0 - convergence * dt) * fov
+        });
+    }
+}
+
+impl Interpolator<f32> {
+    pub fn interpolate_camera_height(&mut self, time: Instant, target_camera_height: f32) {
+        self.step(time, &mut |&camera_height, _t, dt| {
+            let convergence = 20.0;
+            convergence * dt * target_camera_height + (1.0 - convergence * dt) * camera_height
         });
     }
 }

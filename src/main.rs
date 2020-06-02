@@ -110,6 +110,10 @@ fn main() {
     let mut last_space = Instant::now();
     let mut space_throttle = false;
 
+    let sprinting_trigger_interval = Duration::from_millis(250);
+    let mut last_w = Instant::now();
+    let mut w_throttle = false;
+
     let mut particle_systems: HashMap<&str, ParticleSystem> = HashMap::new();
     particle_systems.insert("block_particles", ParticleSystem::new(500));
 
@@ -135,10 +139,10 @@ fn main() {
             };
 
             let fw = player_properties.rotation.forward();
-            let player = player_interpolator.get_latest_state();
+            let player = player_interpolator.get_interpolated_state();
             raycast::raycast(
                 &is_solid_block_at,
-                &player.get_camera_position(),
+                &(player.position + vec3(0., *player_properties.camera_height.get_interpolated_state(), 0.)),
                 &fw.normalize(),
                 REACH_DISTANCE)
         };
@@ -161,6 +165,10 @@ fn main() {
                     }
                 }
 
+                glfw::WindowEvent::Key(Key::LeftShift, _, Action::Release, _) => {
+                    player_properties.is_sneaking = false;
+                }
+
                 glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
                     if space_throttle {
                         space_throttle = false;
@@ -170,6 +178,16 @@ fn main() {
                         space_throttle = true;
                     }
                     last_space = Instant::now();
+                }
+
+                glfw::WindowEvent::Key(Key::W, _, Action::Press, _) => {
+                    if w_throttle {
+                        w_throttle = false;
+                    } else if Instant::now().duration_since(last_w) < sprinting_trigger_interval {
+                        player_properties.is_sprinting = true;
+                        w_throttle = true;
+                    }
+                    last_w = Instant::now();
                 }
 
                 glfw::WindowEvent::CursorPos(_, _) => {
@@ -215,20 +233,59 @@ fn main() {
         player_interpolator.update_player_physics(global_timer.time(), &input_cache, &chunk_manager, &mut player_properties);
         let player_physics_state = player_interpolator.get_interpolated_state();
 
-        chunk_manager.rebuild_dirty_chunks(&uv_map);
+        if input_cache.is_key_pressed(glfw::Key::LeftShift) && player_physics_state.is_on_ground {
+            player_properties.is_sneaking = true;
+            player_properties.is_sprinting = false;
+        }
 
+        let target_camera_height = if player_properties.is_sneaking {
+            PLAYER_EYES_HEIGHT - 1.0 / 8.0
+        } else {
+            PLAYER_EYES_HEIGHT
+        };
+
+        player_properties.camera_height.interpolate_camera_height(global_timer.time(), target_camera_height);
 
         let view_matrix = {
-            let camera_position = player_physics_state.get_camera_position();
+            let camera_position = player_physics_state.position + vec3(0., *player_properties.camera_height.get_interpolated_state(), 0.);
             let looking_dir = player_properties.rotation.forward();
             nalgebra_glm::look_at(&camera_position, &(camera_position + looking_dir), &Vector3::y())
         };
 
-        let target_fov = if !player_properties.is_flying {
-            FOV
+        if input_cache.is_key_pressed(glfw::Key::LeftControl)
+            && input_cache.is_key_pressed(glfw::Key::W)
+            && !player_properties.is_sneaking {
+            player_properties.is_sprinting = true;
+        }
+
+        if player_properties.is_sprinting &&
+            !input_cache.is_key_pressed(glfw::Key::W) {
+            player_properties.is_sprinting = false;
+        }
+
+        let target_fov = if player_properties.is_flying {
+            if player_properties.is_sprinting {
+                FOV + FOV * 0.30
+            } else {
+                FOV + FOV * 0.15
+            }
         } else {
-            FOV + FOV * 0.15
+            if player_properties.is_sprinting {
+                FOV + FOV * 0.15
+            } else {
+                FOV
+            }
         };
+
+        // let target_fov = if !player_properties.is_flying {
+        //     if player_properties.is_sprinting {
+        //         target_fov + target_fov * 0.15
+        //     } else {
+        //         target_fov
+        //     }
+        // } else {
+        //     FOV + FOV * 0.15
+        // };
         player_fov_interpolator.interpolate_fov(global_timer.time(), target_fov);
         let fov = *player_fov_interpolator.get_interpolated_state();
 
@@ -236,6 +293,8 @@ fn main() {
 
         // Draw chunks
         {
+            chunk_manager.rebuild_dirty_chunks(&uv_map);
+
             voxel_shader.use_program();
             voxel_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
             voxel_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());

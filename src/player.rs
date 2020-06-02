@@ -5,13 +5,16 @@ use num_traits::Zero;
 
 use crate::aabb::{AABB, get_block_aabb};
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{HORIZONTAL_ACCELERATION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, WALKING_SPEED, ON_GROUND_FRICTION, IN_AIR_FRICTION, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, FLYING_SPEED};
+use crate::constants::{HORIZONTAL_ACCELERATION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, WALKING_SPEED, ON_GROUND_FRICTION, IN_AIR_FRICTION, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, FLYING_SPEED, SNEAKING_SPEED, SPRINTING_SPEED, FLYING_SPRINTING_SPEED};
 use crate::input::InputCache;
 use crate::util::Forward;
-use crate::physics::Interpolatable;
+use crate::physics::{Interpolatable, Interpolator};
 
 pub struct PlayerProperties {
     pub rotation: Vec3,
+    pub camera_height: Interpolator<f32>,
+    pub is_sneaking: bool,
+    pub is_sprinting: bool,
     pub is_flying: bool,
 }
 
@@ -19,6 +22,9 @@ impl PlayerProperties {
     pub fn new() -> Self {
         PlayerProperties {
             rotation: vec3(0.0, 0.0, 0.0), // In radians
+            camera_height: Interpolator::new(1. / 30., PLAYER_EYES_HEIGHT),
+            is_sneaking: false,
+            is_sprinting: false,
             is_flying: false,
         }
     }
@@ -33,6 +39,10 @@ impl PlayerProperties {
             self.rotation.x,
             -pi::<f32>() / 2.0 + 0.0001,
             pi::<f32>() / 2.0 - 0.0001);
+    }
+
+    pub fn handle_input(&mut self, event: &glfw::WindowEvent) {
+
     }
 }
 
@@ -58,10 +68,6 @@ impl PlayerPhysicsState {
             acceleration: vec3(0.0, 0.0, 0.0),
             is_on_ground: false,
         }
-    }
-
-    pub fn get_camera_position(&self) -> Vec3 {
-        self.position + vec3(0.0, PLAYER_EYES_HEIGHT, 0.0)
     }
 }
 
@@ -233,18 +239,29 @@ impl PlayerPhysicsState {
     }
 
     pub fn limit_velocity(&mut self, player_properties: &PlayerProperties) {
-        // Limit the walking speed (horizontally)
+        // Limit the horizontal speed
         let mut horizontal_vel = vec2(self.velocity.x, self.velocity.z);
         let speed = horizontal_vel.magnitude();
-        if player_properties.is_flying {
-            if speed > FLYING_SPEED {
-                horizontal_vel = horizontal_vel.scale(FLYING_SPEED / speed);
+
+        let max_speed = if player_properties.is_flying {
+            self.velocity.y = clamp(self.velocity.y, -8.0, 8.0);
+            if player_properties.is_sprinting {
+                FLYING_SPRINTING_SPEED
+            } else {
+                FLYING_SPEED
             }
-            self.velocity.y = clamp(self.velocity.y, -10.0, 10.0)
         } else {
-            if speed > WALKING_SPEED {
-                horizontal_vel = horizontal_vel.scale(WALKING_SPEED / speed);
+            if player_properties.is_sprinting {
+                SPRINTING_SPEED
+            } else if player_properties.is_sneaking {
+                SNEAKING_SPEED
+            } else {
+                WALKING_SPEED
             }
+        };
+
+        if speed > max_speed {
+            horizontal_vel = horizontal_vel.scale(max_speed / speed);
         }
 
         self.velocity.x = horizontal_vel.x;
