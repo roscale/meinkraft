@@ -10,7 +10,7 @@ use std::os::raw::c_void;
 
 use glfw::{Action, Context, Key, MouseButton};
 use nalgebra::{Matrix4, Vector3};
-use nalgebra_glm::IVec3;
+use nalgebra_glm::{IVec3, Mat4, Vec3};
 use nalgebra_glm::vec3;
 
 use crate::aabb::{get_block_aabb, AABB};
@@ -33,6 +33,7 @@ use std::collections::HashMap;
 use crate::fps_counter::FpsCounter;
 use std::time::Instant;
 use crate::types::UVMap;
+use crate::shapes::centered_unit_cube;
 
 #[macro_use]
 pub mod debugging;
@@ -91,6 +92,7 @@ fn main() {
     let mut outline_shader = ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag");
     let mut item_shader = ShaderProgram::compile("src/shaders/item.vert", "src/shaders/item.frag");
     let mut particle_shader = ShaderProgram::compile("src/shaders/particle.vert", "src/shaders/particle.frag");
+    let mut hand_shader = ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag");
 
     let crosshair_vao = create_crosshair_vao();
     let block_outline_vao = create_block_outline_vao();
@@ -120,6 +122,40 @@ fn main() {
     particle_systems.insert("block_particles", ParticleSystem::new(500));
 
     let mut fps_counter = FpsCounter::new();
+
+
+
+
+
+    let mut hand_vao = 0;
+    gl_call!(gl::CreateVertexArrays(1, &mut hand_vao));
+
+    // Position
+    gl_call!(gl::EnableVertexArrayAttrib(hand_vao, 0));
+    gl_call!(gl::VertexArrayAttribFormat(hand_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
+    gl_call!(gl::VertexArrayAttribBinding(hand_vao, 0, 0));
+
+    // Texture coords
+    gl_call!(gl::EnableVertexArrayAttrib(hand_vao, 1));
+    gl_call!(gl::VertexArrayAttribFormat(hand_vao, 1, 3 as i32, gl::FLOAT, gl::FALSE, 3 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribBinding(hand_vao, 1, 0));
+
+    // Normals
+    gl_call!(gl::EnableVertexArrayAttrib(hand_vao, 2));
+    gl_call!(gl::VertexArrayAttribFormat(hand_vao, 2, 3 as i32, gl::FLOAT, gl::FALSE, 6 * std::mem::size_of::<f32>() as u32));
+    gl_call!(gl::VertexArrayAttribBinding(hand_vao, 2, 0));
+
+    let mut hand_vbo = 0;
+    gl_call!(gl::CreateBuffers(1, &mut hand_vbo));
+
+
+    gl_call!(gl::VertexArrayVertexBuffer(hand_vao, 0, hand_vbo, 0, (9 * std::mem::size_of::<f32>()) as i32));
+
+
+
+
+
+
 
     while !window.should_close() {
         fps_counter.update();
@@ -265,6 +301,89 @@ fn main() {
             gl_call!(gl::LineWidth(BLOCK_OUTLINE_WIDTH));
             gl_call!(gl::BindVertexArray(block_outline_vao));
             gl_call!(gl::DrawArrays(gl::LINES, 0, 24));
+        }
+
+        // Draw hand
+        {
+            let vbo_data = centered_unit_cube(
+                -0.5, -0.5, -0.5,
+                uv_map.get(&inventory.get_selected_item().unwrap()).unwrap().get_uv_of_every_face());
+
+            gl_call!(gl::NamedBufferData(hand_vbo,
+                    (vbo_data.len() * std::mem::size_of::<f32>() as usize) as isize,
+                    vbo_data.as_ptr() as *const c_void,
+                    gl::DYNAMIC_DRAW));
+
+            let player_pos = player_physics_state.get_interpolated_state().position;
+            let camera_height = *player_properties.camera_height.get_interpolated_state();
+            let camera_pos = player_pos + vec3(0., camera_height, 0.);
+
+            let forward =&player_properties.rotation.forward().normalize();
+            let right = forward.cross(&Vector3::y()).normalize();
+            let up = right.cross(&forward).normalize();
+
+            let model_matrix = {
+                let translate_matrix = Matrix4::new_translation(&(vec3(
+                    camera_pos.x, camera_pos.y, camera_pos.z) + up * -1.2));
+
+                let translate_matrix2 = Matrix4::new_translation(&(vec3(2.0, 0.0, 0.0)));
+
+                // dbg!(player_properties.rotation);
+                // let translate_matrix2 = Matrix4::new_translation(&vec3(0.0, 0.0, -2.0));
+                // let mut rotate_matrix =
+                // rotate_matrix.m14 = 0.0;
+                // rotate_matrix.m24 = 0.0;
+                // rotate_matrix.m34 = 0.0;
+                // rotate_matrix.m44 = 1.0;
+                // rotate_matrix.m22 = -1.0;
+
+
+                let rotate_matrix = nalgebra_glm::rotation(-player_properties.rotation.y, &vec3(0.0, 1.0, 0.0));
+                let rotate_matrix = nalgebra_glm::rotation(player_properties.rotation.x, &right) * rotate_matrix;
+
+                let rotate_matrix = nalgebra_glm::rotation(-35.0f32.to_radians(),&up) * rotate_matrix;
+
+
+                // let rotate_matrix2 = Matrix4::from_euler_angles(
+                //     -player_properties.rotation.x,
+                //     0.0,
+                //     0.0,
+                // );
+                // let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
+                // translate_matrix * rotate_matrix * scale_matrix
+                translate_matrix * rotate_matrix * translate_matrix2
+            };
+
+            let projection_matrix = {
+                let fov = 1.22173;
+                nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, fov, NEAR_PLANE, FAR_PLANE)
+            };
+
+            // let mut model_view: Mat4 = view_matrix * model_matrix;
+            // model_view.m11 = 1.0;
+            // model_view.m12 = 0.;
+            // model_view.m13 = 0.;
+            //
+            // model_view.m21 = 0.;
+            // model_view.m22 = 1.0;
+            // model_view.m23 = 0.;
+            //
+            // model_view.m31 = 0.;
+            // model_view.m32 = 0.;
+            // model_view.m33 = 1.0;
+
+            hand_shader.use_program();
+            hand_shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+            hand_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
+            // hand_shader.set_uniform_matrix4fv("model_view", model_view.as_ptr());
+            hand_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+            hand_shader.set_uniform1i("tex", 0);
+
+            gl_call!(gl::BindVertexArray(hand_vao));
+
+            gl_call!(gl::Disable(gl::DEPTH_TEST));
+            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36 as i32));
+            gl_call!(gl::Enable(gl::DEPTH_TEST));
         }
 
         // Draw GUI
