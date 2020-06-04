@@ -93,7 +93,7 @@ impl Interpolator<PlayerPhysicsState> {
                 player.acceleration.y += GRAVITY;
             }
             
-            player.apply_keyboard_mouvement(&player_properties, &input_cache);
+            player.apply_keyboard_mouvement(player_properties, &input_cache);
             player.velocity += player.acceleration * dt;
             player.apply_friction(dt, player_properties.is_flying);
             player.limit_velocity(&player_properties);

@@ -90,7 +90,7 @@ impl ShaderProgram {
                 if location == -1 {
                     panic!("Can't find uniform '{}' in program with id: {}", name, self.id);
                 }
-                println!("New uniform location {}: {}", &name, &location);
+                // println!("New uniform location {}: {}", &name, &location);
                 self.uniform_cache.get_mut().unwrap().insert(name.to_owned(), location);
                 location
             },

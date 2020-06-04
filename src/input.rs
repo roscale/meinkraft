@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glfw::{Action, Key, WindowEvent};
+use glfw::{Action, Key, WindowEvent, MouseButton};
 use nalgebra_glm::{DVec2, vec2};
 
 pub struct InputCache {
@@ -8,6 +8,7 @@ pub struct InputCache {
     pub cursor_rel_pos: DVec2,
 
     pub key_states: HashMap<Key, Action>,
+    pub mouse_button_states: HashMap<MouseButton, Action>,
 }
 
 impl Default for InputCache {
@@ -16,6 +17,7 @@ impl Default for InputCache {
             last_cursor_pos: vec2(0.0, 0.0),
             cursor_rel_pos: vec2(0.0, 0.0),
             key_states: HashMap::default(),
+            mouse_button_states: HashMap::default(),
         }
     }
 }
@@ -33,6 +35,10 @@ impl InputCache {
             &glfw::WindowEvent::Key(key, _, action, _) => {
                 self.key_states.insert(key, action);
             }
+
+            &glfw::WindowEvent::MouseButton(button, action, _) => {
+                self.mouse_button_states.insert(button, action);
+            }
             _ => {}
         }
     }
@@ -42,5 +48,10 @@ impl InputCache {
             None => false,
             Some(action) => *action == Action::Press || *action == Action::Repeat
         }
+    }
+
+    pub fn is_mouse_button_pressed(&self, mouse_button: MouseButton) -> bool {
+        self.mouse_button_states.get(&mouse_button)
+            .filter(|&&a| a == Action::Press || a == Action::Repeat).is_some()
     }
 }

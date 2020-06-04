@@ -1,21 +1,28 @@
-use glfw::Key;
 use nalgebra::{Vector3, clamp};
 use nalgebra_glm::{vec2, Vec3, vec3, pi};
 use num_traits::Zero;
 
 use crate::aabb::{AABB, get_block_aabb};
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{HORIZONTAL_ACCELERATION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, WALKING_SPEED, ON_GROUND_FRICTION, IN_AIR_FRICTION, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, FLYING_SPEED, SNEAKING_SPEED, SPRINTING_SPEED, FLYING_SPRINTING_SPEED};
+use crate::constants::{HORIZONTAL_ACCELERATION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, WALKING_SPEED, ON_GROUND_FRICTION, IN_AIR_FRICTION, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, FLYING_SPEED, SNEAKING_SPEED, SPRINTING_SPEED, FLYING_SPRINTING_SPEED, FLYING_TRIGGER_INTERVAL, SPRINTING_TRIGGER_INTERVAL, FOV};
 use crate::input::InputCache;
 use crate::util::Forward;
 use crate::physics::{Interpolatable, Interpolator};
+use std::time::Instant;
 
 pub struct PlayerProperties {
     pub rotation: Vec3,
     pub camera_height: Interpolator<f32>,
+    pub fov: Interpolator<f32>,
     pub is_sneaking: bool,
     pub is_sprinting: bool,
     pub is_flying: bool,
+
+    jump_last_executed: Instant,
+    fly_throttle: bool,
+    fly_last_toggled: Instant,
+    sprint_throttle: bool,
+    sprint_last_toggled: Instant,
 }
 
 impl PlayerProperties {
@@ -23,14 +30,19 @@ impl PlayerProperties {
         PlayerProperties {
             rotation: vec3(0.0, 0.0, 0.0), // In radians
             camera_height: Interpolator::new(1. / 30., PLAYER_EYES_HEIGHT),
+            fov: Interpolator::new(1.0 / 30.0, FOV),
             is_sneaking: false,
             is_sprinting: false,
             is_flying: false,
+
+            jump_last_executed: Instant::now(),
+            fly_throttle: false,
+            fly_last_toggled: Instant::now(),
+            sprint_throttle: false,
+            sprint_last_toggled: Instant::now(),
         }
     }
-}
 
-impl PlayerProperties {
     pub fn rotate_camera(&mut self, horizontal: f32, vertical: f32) {
         self.rotation.y += horizontal / 100.0 * MOUSE_SENSITIVITY_X;
         self.rotation.x -= vertical / 100.0 * MOUSE_SENSITIVITY_Y;
@@ -41,8 +53,77 @@ impl PlayerProperties {
             pi::<f32>() / 2.0 - 0.0001);
     }
 
-    pub fn handle_input(&mut self, event: &glfw::WindowEvent) {
+    pub fn handle_input_event(&mut self, event: &glfw::WindowEvent) {
+        match &event {
+            glfw::WindowEvent::Key(glfw::Key::Space, _, glfw::Action::Press, _) => {
+                if self.fly_throttle {
+                    self.fly_throttle = false;
+                } else if Instant::now().duration_since(self.fly_last_toggled) < *FLYING_TRIGGER_INTERVAL {
+                    self.is_flying = !self.is_flying;
+                    info!("Flying: {}", self.is_flying);
+                    self.fly_throttle = true;
+                }
+                self.fly_last_toggled = Instant::now();
+            }
 
+            glfw::WindowEvent::Key(glfw::Key::LeftShift, _, glfw::Action::Release, _) => {
+                self.is_sneaking = false;
+            }
+
+            glfw::WindowEvent::Key(glfw::Key::W, _, glfw::Action::Press, _) => {
+                if self.sprint_throttle {
+                    self.sprint_throttle = false;
+                } else if Instant::now().duration_since(self.sprint_last_toggled) < *SPRINTING_TRIGGER_INTERVAL {
+                    self.is_sprinting = true;
+                    self.sprint_throttle = true;
+                }
+                self.sprint_last_toggled = Instant::now();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn on_update(&mut self, t: Instant, input_cache: &InputCache, player_physics_state: &PlayerPhysicsState) {
+        // Movement
+        if input_cache.is_key_pressed(glfw::Key::LeftShift) && player_physics_state.is_on_ground {
+            self.is_sneaking = true;
+            self.is_sprinting = false;
+        }
+
+        if input_cache.is_key_pressed(glfw::Key::LeftControl)
+            && input_cache.is_key_pressed(glfw::Key::W)
+            && !self.is_sneaking {
+            self.is_sprinting = true;
+        }
+
+        if self.is_sprinting &&
+            !input_cache.is_key_pressed(glfw::Key::W) {
+            self.is_sprinting = false;
+        }
+
+        // Camera height
+        let target_camera_height = if self.is_sneaking {
+            PLAYER_EYES_HEIGHT - 1.0 / 8.0
+        } else {
+            PLAYER_EYES_HEIGHT
+        };
+        self.camera_height.interpolate_camera_height(t, target_camera_height);
+
+        // FOV
+        let target_fov = if self.is_flying {
+            if self.is_sprinting {
+                FOV + FOV * 0.30
+            } else {
+                FOV + FOV * 0.15
+            }
+        } else {
+            if self.is_sprinting {
+                FOV + FOV * 0.15
+            } else {
+                FOV
+            }
+        };
+        self.fov.interpolate_fov(t, target_fov);
     }
 }
 
@@ -81,53 +162,62 @@ impl Interpolatable for PlayerPhysicsState {
             position: interpolate_vec3(&self.position, &other.position),
             aabb: AABB {
                 mins: interpolate_vec3(&self.aabb.mins, &other.aabb.mins),
-                maxs: interpolate_vec3(&self.aabb.maxs, &other.aabb.maxs)
+                maxs: interpolate_vec3(&self.aabb.maxs, &other.aabb.maxs),
             },
             velocity: interpolate_vec3(&self.velocity, &other.velocity),
             acceleration: interpolate_vec3(&self.acceleration, &other.acceleration),
-            is_on_ground: other.is_on_ground
+            is_on_ground: other.is_on_ground,
         }
     }
 }
 
 impl PlayerPhysicsState {
-    pub fn apply_keyboard_mouvement(&mut self, player_properties: &PlayerProperties, input_cache: &InputCache) {
+    pub fn handle_input_event(&mut self, event: &glfw::WindowEvent, player_properties: &mut PlayerProperties) {
+        match &event {
+            glfw::WindowEvent::Key(glfw::Key::Space, _, glfw::Action::Press, _) => {
+                if self.is_on_ground {
+                    self.velocity.y = *JUMP_IMPULSE;
+                    player_properties.jump_last_executed = Instant::now();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn apply_keyboard_mouvement(&mut self, player_properties: &mut PlayerProperties, input_cache: &InputCache) {
         let rotation = &player_properties.rotation;
         if player_properties.is_flying {
-            if input_cache.is_key_pressed(Key::Space) {
+            if input_cache.is_key_pressed(glfw::Key::Space) {
                 self.acceleration = vec3(0.0, 100.0, 0.0);
             }
-            if input_cache.is_key_pressed(Key::LeftShift) {
+            if input_cache.is_key_pressed(glfw::Key::LeftShift) {
                 self.acceleration = vec3(0.0, -100.0, 0.0);
             }
         }
 
-        if input_cache.is_key_pressed(Key::Space) {
-            if player_properties.is_flying {
-                self.acceleration = vec3(0.0, 100.0, 0.0);
-            }
-        }
-
-
         // Jump
-        if input_cache.is_key_pressed(Key::Space) {
-            if self.is_on_ground {
-                self.velocity.y = *JUMP_IMPULSE;
+        if input_cache.is_key_pressed(glfw::Key::Space) {
+            let now = Instant::now();
+            if now.duration_since(player_properties.jump_last_executed).as_secs_f32() >= 0.475 {
+                if self.is_on_ground {
+                    self.velocity.y = *JUMP_IMPULSE;
+                    player_properties.jump_last_executed = now;
+                }
             }
         }
         // Walk
         let mut horizontal_acceleration = vec3(0.0, 0.0, 0.0);
 
-        if input_cache.is_key_pressed(Key::W) {
+        if input_cache.is_key_pressed(glfw::Key::W) {
             horizontal_acceleration += -rotation.forward().cross(&Vector3::y()).cross(&Vector3::y())
         }
-        if input_cache.is_key_pressed(Key::S) {
+        if input_cache.is_key_pressed(glfw::Key::S) {
             horizontal_acceleration += rotation.forward().cross(&Vector3::y()).cross(&Vector3::y())
         }
-        if input_cache.is_key_pressed(Key::A) {
+        if input_cache.is_key_pressed(glfw::Key::A) {
             horizontal_acceleration += -rotation.forward().cross(&Vector3::y())
         }
-        if input_cache.is_key_pressed(Key::D) {
+        if input_cache.is_key_pressed(glfw::Key::D) {
             horizontal_acceleration += rotation.forward().cross(&Vector3::y())
         }
 

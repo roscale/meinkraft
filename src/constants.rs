@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 // Window
 pub const OPENGL_MAJOR_VERSION: u32 = 4;
 pub const OPENGL_MINOR_VERSION: u32 = 6;
@@ -32,7 +34,7 @@ pub const BLOCK_TEXTURE_SIZE: u32 = 16;
 pub const PLAYER_WIDTH: f32 = 0.6;
 pub const PLAYER_HEIGHT: f32 = 1.8;
 pub const PLAYER_EYES_HEIGHT: f32 = 1.62;
-pub const REACH_DISTANCE: f32 = 400.0;
+pub const REACH_DISTANCE: f32 = 7.0;
 pub const JUMP_HEIGHT: f32 = 1.3;
 pub const HORIZONTAL_ACCELERATION: f32 = 30.0;
 pub const WALKING_SPEED: f32 = 4.317;
@@ -47,6 +49,8 @@ pub const IN_AIR_FRICTION: f32 = 2.0;
 // Calculation of the initial velocity in order to reach the jump height
 lazy_static! {
     pub static ref JUMP_IMPULSE: f32 = (JUMP_HEIGHT * 2.0 * -GRAVITY).sqrt();
+    pub static ref FLYING_TRIGGER_INTERVAL: Duration = Duration::from_millis(250);
+    pub static ref SPRINTING_TRIGGER_INTERVAL: Duration = Duration::from_millis(250);
 }
 pub const PLAYER_HALF_WIDTH: f32 = PLAYER_WIDTH / 2.0;
 pub const PLAYER_HALF_HEIGHT: f32 = PLAYER_HEIGHT / 2.0;
