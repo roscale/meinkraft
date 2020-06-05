@@ -6,7 +6,7 @@ use crate::PLAYER_HALF_WIDTH;
 use crate::chunk_manager::ChunkManager;
 use crate::constants::GRAVITY;
 use crate::input::InputCache;
-use crate::player::{PlayerPhysicsState, PlayerProperties};
+use crate::player::{PlayerPhysicsState, PlayerState};
 use std::time::Instant;
 use num_traits::Zero;
 
@@ -54,7 +54,11 @@ impl<T: Clone + Interpolatable> Interpolator<T> {
         }
     }
 
-    pub fn get_latest_state(&mut self) -> &mut T {
+    pub fn get_latest_state(&self) -> &T {
+        &self.current_state
+    }
+
+    pub fn get_latest_state_mut(&mut self) -> &mut T {
         &mut self.current_state
     }
 
@@ -84,82 +88,82 @@ impl<T: Clone + Interpolatable> Interpolator<T> {
     }
 }
 
-impl Interpolator<PlayerPhysicsState> {
-    /// Advances the physics for the player.
-    pub fn update_player_physics(&mut self, time: Instant, input_cache: &InputCache, chunk_manager: &ChunkManager, player_properties: &mut PlayerProperties) {
-        self.step(time, &mut |player: &PlayerPhysicsState, _t: f32, dt: f32| {
-            let mut player = player.clone();
-            if !player_properties.is_flying {
-                player.acceleration.y += GRAVITY;
-            }
-            
-            player.apply_keyboard_mouvement(player_properties, &input_cache);
-            player.velocity += player.acceleration * dt;
-            player.apply_friction(dt, player_properties.is_flying);
-            player.limit_velocity(&player_properties);
-
-            let is_on_ground = |player: &PlayerPhysicsState| {
-                let mut player = player.clone();
-                let vy = vec3(0.0, player.velocity.y, 0.0);
-                player.aabb.ip_translate(&(vy * dt));
-                let colliding_block = player.get_colliding_block_coords(&chunk_manager);
-                if let Some(colliding_block) = colliding_block {
-                    player.separate_from_block(&vy, &colliding_block)
-                } else {
-                    false
-                }
-            };
-
-            // We are using the Separated Axis Theorem
-            // We decompose the velocity vector into 3 vectors for each dimension
-            // For each one, we move the entity and do the collision detection/resolution
-            let mut is_player_on_ground = false;
-            let separated_axis = &[
-                vec3(player.velocity.x, 0.0, 0.0),
-                vec3(0.0, 0.0, player.velocity.z),
-                vec3(0.0, player.velocity.y, 0.0)];
-
-            for v in separated_axis {
-                let bk = player.clone();
-                player.aabb.ip_translate(&(v * dt));
-                let colliding_block = player.get_colliding_block_coords(&chunk_manager);
-
-                // Collision resolution
-                if let Some(colliding_block) = colliding_block {
-                    is_player_on_ground |= player.separate_from_block(&v, &colliding_block);
-                }
-
-                if input_cache.is_key_pressed(glfw::Key::LeftShift)
-                    && player.is_on_ground
-                    && !is_on_ground(&player)
-                    && player.velocity.y < 0. {
-                    player = bk;
-
-                    if !v.x.is_zero() {
-                        player.velocity.x = 0.0;
-                    }
-                    if !v.z.is_zero() {
-                        player.velocity.z = 0.0;
-                    }
-                }
-            }
-            player.is_on_ground = is_player_on_ground;
-            if player.is_on_ground {
-                player_properties.is_flying = false;
-            }
-
-            // Update the position of the player and reset the acceleration
-            player.position.x = player.aabb.mins.x + PLAYER_HALF_WIDTH;
-            player.position.y = player.aabb.mins.y;
-            player.position.z = player.aabb.mins.z + PLAYER_HALF_WIDTH;
-
-            player.acceleration.x = 0.0;
-            player.acceleration.y = 0.0;
-            player.acceleration.z = 0.0;
-            player
-        });
-    }
-}
+// impl Interpolator<PlayerPhysicsState> {
+//     /// Advances the physics for the player.
+//     pub fn update_player_physics(&mut self, time: Instant, input_cache: &InputCache, chunk_manager: &ChunkManager, player_properties: &mut PlayerState) {
+//         self.step(time, &mut |player: &PlayerPhysicsState, _t: f32, dt: f32| {
+//             let mut player = player.clone();
+//             if !player_properties.is_flying {
+//                 player.acceleration.y += GRAVITY;
+//             }
+//
+//             player.apply_keyboard_mouvement(player_properties, &input_cache);
+//             player.velocity += player.acceleration * dt;
+//             player.apply_friction(dt, player_properties.is_flying);
+//             player.limit_velocity(&player_properties);
+//
+//             let is_on_ground = |player: &PlayerPhysicsState| {
+//                 let mut player = player.clone();
+//                 let vy = vec3(0.0, player.velocity.y, 0.0);
+//                 player.aabb.ip_translate(&(vy * dt));
+//                 let colliding_block = player.get_colliding_block_coords(&chunk_manager);
+//                 if let Some(colliding_block) = colliding_block {
+//                     player.separate_from_block(&vy, &colliding_block)
+//                 } else {
+//                     false
+//                 }
+//             };
+//
+//             // We are using the Separated Axis Theorem
+//             // We decompose the velocity vector into 3 vectors for each dimension
+//             // For each one, we move the entity and do the collision detection/resolution
+//             let mut is_player_on_ground = false;
+//             let separated_axis = &[
+//                 vec3(player.velocity.x, 0.0, 0.0),
+//                 vec3(0.0, 0.0, player.velocity.z),
+//                 vec3(0.0, player.velocity.y, 0.0)];
+//
+//             for v in separated_axis {
+//                 let bk = player.clone();
+//                 player.aabb.ip_translate(&(v * dt));
+//                 let colliding_block = player.get_colliding_block_coords(&chunk_manager);
+//
+//                 // Collision resolution
+//                 if let Some(colliding_block) = colliding_block {
+//                     is_player_on_ground |= player.separate_from_block(&v, &colliding_block);
+//                 }
+//
+//                 if input_cache.is_key_pressed(glfw::Key::LeftShift)
+//                     && player.is_on_ground
+//                     && !is_on_ground(&player)
+//                     && player.velocity.y < 0. {
+//                     player = bk;
+//
+//                     if !v.x.is_zero() {
+//                         player.velocity.x = 0.0;
+//                     }
+//                     if !v.z.is_zero() {
+//                         player.velocity.z = 0.0;
+//                     }
+//                 }
+//             }
+//             player.is_on_ground = is_player_on_ground;
+//             if player.is_on_ground {
+//                 player_properties.is_flying = false;
+//             }
+//
+//             // Update the position of the player and reset the acceleration
+//             player.position.x = player.aabb.mins.x + PLAYER_HALF_WIDTH;
+//             player.position.y = player.aabb.mins.y;
+//             player.position.z = player.aabb.mins.z + PLAYER_HALF_WIDTH;
+//
+//             player.acceleration.x = 0.0;
+//             player.acceleration.y = 0.0;
+//             player.acceleration.z = 0.0;
+//             player
+//         });
+//     }
+// }
 
 impl Interpolator<f32> {
     pub fn interpolate_fov(&mut self, time: Instant, target_fov: f32) {

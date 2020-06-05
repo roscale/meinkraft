@@ -15,6 +15,7 @@ pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 // pub const CUBE_SIZE: u32 = 180;
 
+#[derive(Default)]
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
 }
@@ -160,6 +161,9 @@ impl ChunkManager {
             for &(rx, ry, rz) in &chunk.dirty_neighbours {
                 dirty_chunks.insert((x + rx, y + ry, z + rz));
             }
+        }
+        if dirty_chunks.is_empty() {
+            return;
         }
 
         /*

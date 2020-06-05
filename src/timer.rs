@@ -7,6 +7,12 @@ pub struct Timer {
     paused: bool,
 }
 
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Timer {
     pub fn new() -> Self {
         Self {
@@ -29,12 +35,15 @@ impl Timer {
         self.paused = false;
     }
 
-    pub fn time(&mut self) -> Instant {
+    pub fn tick(&mut self) {
         if self.paused {
             self.time_paused = Instant::now().duration_since(self.current);
         } else {
             self.current = Instant::now().sub(self.time_paused);
         }
+    }
+
+    pub fn time(&self) -> Instant {
         self.current
     }
 

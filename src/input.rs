@@ -4,6 +4,7 @@ use glfw::{Action, Key, WindowEvent, MouseButton};
 use nalgebra_glm::{DVec2, vec2};
 
 pub struct InputCache {
+    pub events: Vec<WindowEvent>,
     pub last_cursor_pos: DVec2,
     pub cursor_rel_pos: DVec2,
 
@@ -14,6 +15,7 @@ pub struct InputCache {
 impl Default for InputCache {
     fn default() -> Self {
         InputCache {
+            events: vec![],
             last_cursor_pos: vec2(0.0, 0.0),
             cursor_rel_pos: vec2(0.0, 0.0),
             key_states: HashMap::default(),
@@ -24,6 +26,8 @@ impl Default for InputCache {
 
 impl InputCache {
     pub fn handle_event(&mut self, event: &WindowEvent) {
+        self.events.push(event.clone());
+
         match event {
             &glfw::WindowEvent::CursorPos(x, y) => {
                 self.cursor_rel_pos.x = x - self.last_cursor_pos.x;

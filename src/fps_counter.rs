@@ -8,6 +8,12 @@ pub struct FpsCounter {
     last_second: Instant,
 }
 
+impl Default for FpsCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FpsCounter {
     pub fn new() -> Self {
         Self {

@@ -10,7 +10,7 @@ use crate::util::Forward;
 use crate::physics::{Interpolatable, Interpolator};
 use std::time::Instant;
 
-pub struct PlayerProperties {
+pub struct PlayerState {
     pub rotation: Vec3,
     pub camera_height: Interpolator<f32>,
     pub fov: Interpolator<f32>,
@@ -18,16 +18,16 @@ pub struct PlayerProperties {
     pub is_sprinting: bool,
     pub is_flying: bool,
 
-    jump_last_executed: Instant,
-    fly_throttle: bool,
-    fly_last_toggled: Instant,
-    sprint_throttle: bool,
-    sprint_last_toggled: Instant,
+    pub(crate) jump_last_executed: Instant,
+    pub(crate) fly_throttle: bool,
+    pub(crate) fly_last_toggled: Instant,
+    pub(crate) sprint_throttle: bool,
+    pub(crate) sprint_last_toggled: Instant,
 }
 
-impl PlayerProperties {
+impl PlayerState {
     pub fn new() -> Self {
-        PlayerProperties {
+        PlayerState {
             rotation: vec3(0.0, 0.0, 0.0), // In radians
             camera_height: Interpolator::new(1. / 30., PLAYER_EYES_HEIGHT),
             fov: Interpolator::new(1.0 / 30.0, FOV),
@@ -53,78 +53,9 @@ impl PlayerProperties {
             pi::<f32>() / 2.0 - 0.0001);
     }
 
-    pub fn handle_input_event(&mut self, event: &glfw::WindowEvent) {
-        match &event {
-            glfw::WindowEvent::Key(glfw::Key::Space, _, glfw::Action::Press, _) => {
-                if self.fly_throttle {
-                    self.fly_throttle = false;
-                } else if Instant::now().duration_since(self.fly_last_toggled) < *FLYING_TRIGGER_INTERVAL {
-                    self.is_flying = !self.is_flying;
-                    info!("Flying: {}", self.is_flying);
-                    self.fly_throttle = true;
-                }
-                self.fly_last_toggled = Instant::now();
-            }
-
-            glfw::WindowEvent::Key(glfw::Key::LeftShift, _, glfw::Action::Release, _) => {
-                self.is_sneaking = false;
-            }
-
-            glfw::WindowEvent::Key(glfw::Key::W, _, glfw::Action::Press, _) => {
-                if self.sprint_throttle {
-                    self.sprint_throttle = false;
-                } else if Instant::now().duration_since(self.sprint_last_toggled) < *SPRINTING_TRIGGER_INTERVAL {
-                    self.is_sprinting = true;
-                    self.sprint_throttle = true;
-                }
-                self.sprint_last_toggled = Instant::now();
-            }
-            _ => {}
-        }
-    }
-
-    pub fn on_update(&mut self, t: Instant, input_cache: &InputCache, player_physics_state: &PlayerPhysicsState) {
-        // Movement
-        if input_cache.is_key_pressed(glfw::Key::LeftShift) && player_physics_state.is_on_ground {
-            self.is_sneaking = true;
-            self.is_sprinting = false;
-        }
-
-        if input_cache.is_key_pressed(glfw::Key::LeftControl)
-            && input_cache.is_key_pressed(glfw::Key::W)
-            && !self.is_sneaking {
-            self.is_sprinting = true;
-        }
-
-        if self.is_sprinting &&
-            !input_cache.is_key_pressed(glfw::Key::W) {
-            self.is_sprinting = false;
-        }
-
-        // Camera height
-        let target_camera_height = if self.is_sneaking {
-            PLAYER_EYES_HEIGHT - 1.0 / 8.0
-        } else {
-            PLAYER_EYES_HEIGHT
-        };
-        self.camera_height.interpolate_camera_height(t, target_camera_height);
-
-        // FOV
-        let target_fov = if self.is_flying {
-            if self.is_sprinting {
-                FOV + FOV * 0.30
-            } else {
-                FOV + FOV * 0.15
-            }
-        } else {
-            if self.is_sprinting {
-                FOV + FOV * 0.15
-            } else {
-                FOV
-            }
-        };
-        self.fov.interpolate_fov(t, target_fov);
-    }
+    // pub fn on_update(&mut self, t: Instant, input_cache: &InputCache, player_physics_state: &PlayerPhysicsState) {
+    //
+    // }
 }
 
 #[derive(Clone)]
@@ -172,19 +103,7 @@ impl Interpolatable for PlayerPhysicsState {
 }
 
 impl PlayerPhysicsState {
-    pub fn handle_input_event(&mut self, event: &glfw::WindowEvent, player_properties: &mut PlayerProperties) {
-        match &event {
-            glfw::WindowEvent::Key(glfw::Key::Space, _, glfw::Action::Press, _) => {
-                if self.is_on_ground {
-                    self.velocity.y = *JUMP_IMPULSE;
-                    player_properties.jump_last_executed = Instant::now();
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn apply_keyboard_mouvement(&mut self, player_properties: &mut PlayerProperties, input_cache: &InputCache) {
+    pub fn apply_keyboard_mouvement(&mut self, player_properties: &mut PlayerState, input_cache: &InputCache) {
         let rotation = &player_properties.rotation;
         if player_properties.is_flying {
             if input_cache.is_key_pressed(glfw::Key::Space) {
@@ -328,7 +247,7 @@ impl PlayerPhysicsState {
         }
     }
 
-    pub fn limit_velocity(&mut self, player_properties: &PlayerProperties) {
+    pub fn limit_velocity(&mut self, player_properties: &PlayerState) {
         // Limit the horizontal speed
         let mut horizontal_vel = vec2(self.velocity.x, self.velocity.z);
         let speed = horizontal_vel.magnitude();
