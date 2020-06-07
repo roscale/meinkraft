@@ -1,28 +1,35 @@
-use nalgebra::{Vector3, clamp};
-use nalgebra_glm::{vec2, Vec3, vec3, pi};
+use std::time::Instant;
+
+use nalgebra::{clamp, Vector3};
+use nalgebra_glm::{IVec3, pi, vec2, Vec3, vec3};
 use num_traits::Zero;
 
 use crate::aabb::{AABB, get_block_aabb};
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{HORIZONTAL_ACCELERATION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, WALKING_SPEED, ON_GROUND_FRICTION, IN_AIR_FRICTION, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, FLYING_SPEED, SNEAKING_SPEED, SPRINTING_SPEED, FLYING_SPRINTING_SPEED, FLYING_TRIGGER_INTERVAL, SPRINTING_TRIGGER_INTERVAL, FOV};
+use crate::constants::{FLYING_SPEED, FLYING_SPRINTING_SPEED, FLYING_TRIGGER_INTERVAL, FOV, HORIZONTAL_ACCELERATION, IN_AIR_FRICTION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, ON_GROUND_FRICTION, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, SNEAKING_SPEED, SPRINTING_SPEED, SPRINTING_TRIGGER_INTERVAL, WALKING_SPEED};
 use crate::input::InputCache;
-use crate::util::Forward;
+use crate::inventory::Inventory;
 use crate::physics::{Interpolatable, Interpolator};
-use std::time::Instant;
+use crate::util::Forward;
 
 pub struct PlayerState {
     pub rotation: Vec3,
     pub camera_height: Interpolator<f32>,
     pub fov: Interpolator<f32>,
+
+    pub is_on_ground: bool,
     pub is_sneaking: bool,
     pub is_sprinting: bool,
     pub is_flying: bool,
+
+    pub targeted_block: Option<((i32, i32, i32), IVec3)>,
 
     pub(crate) jump_last_executed: Instant,
     pub(crate) fly_throttle: bool,
     pub(crate) fly_last_toggled: Instant,
     pub(crate) sprint_throttle: bool,
     pub(crate) sprint_last_toggled: Instant,
+    pub(crate) block_placing_last_executed: Instant,
 }
 
 impl PlayerState {
@@ -31,15 +38,20 @@ impl PlayerState {
             rotation: vec3(0.0, 0.0, 0.0), // In radians
             camera_height: Interpolator::new(1. / 30., PLAYER_EYES_HEIGHT),
             fov: Interpolator::new(1.0 / 30.0, FOV),
+
+            is_on_ground: false,
             is_sneaking: false,
             is_sprinting: false,
             is_flying: false,
+
+            targeted_block: None,
 
             jump_last_executed: Instant::now(),
             fly_throttle: false,
             fly_last_toggled: Instant::now(),
             sprint_throttle: false,
             sprint_last_toggled: Instant::now(),
+            block_placing_last_executed: Instant::now(),
         }
     }
 
@@ -64,7 +76,6 @@ pub struct PlayerPhysicsState {
     pub aabb: AABB,
     pub velocity: Vec3,
     pub acceleration: Vec3,
-    pub is_on_ground: bool,
 }
 
 impl PlayerPhysicsState {
@@ -78,7 +89,6 @@ impl PlayerPhysicsState {
             },
             velocity: vec3(0.0, 0.0, 0.0),
             acceleration: vec3(0.0, 0.0, 0.0),
-            is_on_ground: false,
         }
     }
 }
@@ -97,7 +107,6 @@ impl Interpolatable for PlayerPhysicsState {
             },
             velocity: interpolate_vec3(&self.velocity, &other.velocity),
             acceleration: interpolate_vec3(&self.acceleration, &other.acceleration),
-            is_on_ground: other.is_on_ground,
         }
     }
 }
@@ -118,7 +127,7 @@ impl PlayerPhysicsState {
         if input_cache.is_key_pressed(glfw::Key::Space) {
             let now = Instant::now();
             if now.duration_since(player_properties.jump_last_executed).as_secs_f32() >= 0.475 {
-                if self.is_on_ground {
+                if player_properties.is_on_ground {
                     self.velocity.y = *JUMP_IMPULSE;
                     player_properties.jump_last_executed = now;
                 }
@@ -225,8 +234,8 @@ impl PlayerPhysicsState {
         is_player_on_ground
     }
 
-    pub fn apply_friction(&mut self, dt: f32, vertically: bool) {
-        let friction = if self.is_on_ground {
+    pub fn apply_friction(&mut self, dt: f32, player_state: &PlayerState) {
+        let friction = if player_state.is_on_ground {
             ON_GROUND_FRICTION
         } else {
             IN_AIR_FRICTION
@@ -240,7 +249,7 @@ impl PlayerPhysicsState {
         if self.acceleration.z.is_zero() || self.acceleration.z.signum() != self.velocity.z.signum() {
             self.velocity.z -= friction * self.velocity.z * dt;
         }
-        if vertically {
+        if player_state.is_flying {
             if self.acceleration.y.is_zero() || self.acceleration.y.signum() != self.velocity.y.signum() {
                 self.velocity.y -= ON_GROUND_FRICTION * self.velocity.y * dt;
             }

@@ -12,7 +12,7 @@ use rand::random;
 use crate::aabb::get_block_aabb;
 use num_traits::Zero;
 use crate::chunk::BlockID;
-use crate::types::UVMap;
+use crate::types::TexturePack;
 use std::ptr::null;
 use itertools::Itertools;
 
@@ -67,7 +67,7 @@ impl ParticleSystem {
         }
     }
 
-    pub fn emit(&mut self, particle_props: &ParticleProps, uv_map: &UVMap, block: BlockID) {
+    pub fn emit(&mut self, particle_props: &ParticleProps, uv_map: &TexturePack, block: BlockID) {
         let get_texture_coords = |uv: (f32, f32, f32, f32), layer: f32| {
             (&[
                 uv.0, uv.1, layer,
@@ -315,7 +315,7 @@ impl Default for Particle {
 }
 
 impl ParticleSystem {
-    pub fn spawn_block_breaking_particles(&mut self, pos: Vec3, uv_map: &UVMap, block: BlockID) {
+    pub fn spawn_block_breaking_particles(&mut self, pos: Vec3, uv_map: &TexturePack, block: BlockID) {
         let block_center = pos + vec3(0.5, 0.5, 0.5);
         let half_spacing = 1.0 / 8.0;
 

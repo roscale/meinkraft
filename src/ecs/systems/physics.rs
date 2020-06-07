@@ -39,10 +39,10 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
 
                 player.apply_keyboard_mouvement(player_state, &input_cache);
                 player.velocity += player.acceleration * dt;
-                player.apply_friction(dt, player_state.is_flying);
+                player.apply_friction(dt, &player_state);
                 player.limit_velocity(&player_state);
 
-                let is_on_ground = |player: &PlayerPhysicsState| {
+                let will_hit_ground = |player: &PlayerPhysicsState| {
                     let mut player = player.clone();
                     let vy = vec3(0.0, player.velocity.y, 0.0);
                     player.aabb.ip_translate(&(vy * dt));
@@ -74,8 +74,8 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
                     }
 
                     if input_cache.is_key_pressed(glfw::Key::LeftShift)
-                        && player.is_on_ground
-                        && !is_on_ground(&player)
+                        && player_state.is_on_ground
+                        && !will_hit_ground(&player)
                         && player.velocity.y < 0. {
                         player = bk;
 
@@ -87,8 +87,8 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
                         }
                     }
                 }
-                player.is_on_ground = is_player_on_ground;
-                if player.is_on_ground {
+                player_state.is_on_ground = is_player_on_ground;
+                if player_state.is_on_ground {
                     player_state.is_flying = false;
                 }
 

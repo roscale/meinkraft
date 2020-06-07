@@ -6,9 +6,9 @@ use image::{DynamicImage, GenericImageView};
 use crate::block_texture_faces::BlockFaces;
 use crate::chunk::BlockID;
 use crate::constants::ITEM_ARRAY_TEXTURE_LAYERS;
-use crate::types::{TextureLayer};
+use crate::types::{TextureLayer, TexturePack};
 
-pub fn generate_array_texture() -> (u32, HashMap<BlockID, BlockFaces<TextureLayer>>) {
+pub fn generate_array_texture() -> (u32, TexturePack) {
     let face_images = create_face_images_map();
     let array_texture = create_array_texture(ITEM_ARRAY_TEXTURE_LAYERS as i32);
     let face_uvs = create_face_uvs_map(array_texture, face_images);

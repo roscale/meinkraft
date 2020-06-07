@@ -1,11 +1,12 @@
 use crate::chunk::BlockID;
 use crate::shapes::centered_unit_cube;
-use crate::types::UVMap;
+use crate::types::TexturePack;
 use std::os::raw::c_void;
 use nalgebra_glm::{Mat4, vec3, pi};
 use crate::constants::{WINDOW_WIDTH, WINDOW_HEIGHT, GUI_SCALING};
 use crate::shader_compilation::ShaderProgram;
 use nalgebra::Matrix4;
+use std::ptr::null;
 
 #[derive(Copy, Clone)]
 pub struct ItemStack {
@@ -15,23 +16,30 @@ pub struct ItemStack {
 }
 
 impl ItemStack {
-    pub fn new(amount: u32, block: BlockID, uv_map: &UVMap) -> Self {
+    pub fn new(amount: u32, block: BlockID) -> Self {
         ItemStack {
             item: block,
             amount,
-            item_render: ItemRender::new(block, uv_map)
+            item_render: ItemRender::new(block)
         }
+    }
+
+    pub fn update_if_dirty(&mut self, texture_pack: &TexturePack) {
+        self.item_render.update_vbo_if_dirty(self.item, &texture_pack);
     }
 }
 
 #[derive(Copy, Clone)]
 pub struct ItemRender {
     vao: u32,
+    vbo: u32,
+    // This is dirty when the VBO needs to be updated (at creation and when changing the block)
+    pub(crate) dirty: bool,
     projection_matrix: Mat4,
 }
 
 impl ItemRender {
-    pub fn new(block: BlockID, uv_map: &UVMap) -> Self {
+    pub fn new(block: BlockID) -> Self {
         let mut vao = 0;
         gl_call!(gl::CreateVertexArrays(1, &mut vao));
 
@@ -52,14 +60,11 @@ impl ItemRender {
 
         let mut vbo = 0;
         gl_call!(gl::CreateBuffers(1, &mut vbo));
-        let vbo_data = centered_unit_cube(
-            -0.5, -0.5, -0.5,
-            uv_map.get(&block).unwrap().get_uv_of_every_face());
 
         gl_call!(gl::NamedBufferData(vbo,
-                    (vbo_data.len() * std::mem::size_of::<f32>() as usize) as isize,
-                    vbo_data.as_ptr() as *const c_void,
-                    gl::STATIC_DRAW));
+                    (9 * 6 * 6 * std::mem::size_of::<f32>() as usize) as isize,
+                    null(),
+                    gl::DYNAMIC_DRAW));
 
         gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (9 * std::mem::size_of::<f32>()) as i32));
 
@@ -68,8 +73,28 @@ impl ItemRender {
 
         ItemRender {
             vao,
+            vbo,
+            dirty: true,
             projection_matrix
         }
+    }
+
+    pub fn update_vbo_if_dirty(&mut self, item: BlockID, texture_pack: &TexturePack) {
+        if self.dirty {
+            self.update_vbo(item, &texture_pack);
+            self.dirty = true;
+        }
+    }
+
+    pub fn update_vbo(&mut self, item: BlockID, texture_pack: &TexturePack) {
+        let vbo_data = centered_unit_cube(
+            -0.5, -0.5, -0.5,
+            texture_pack.get(&item).unwrap().get_uv_of_every_face());
+
+        gl_call!(gl::NamedBufferSubData(self.vbo,
+                    0,
+                    (vbo_data.len() * std::mem::size_of::<f32>()) as isize,
+                    vbo_data.as_ptr() as *mut c_void));
     }
 
     pub fn draw(&self, x: f32, y: f32, shader: &mut ShaderProgram) {

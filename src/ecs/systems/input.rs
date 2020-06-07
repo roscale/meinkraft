@@ -9,7 +9,6 @@ use specs::{Read, ReadStorage, System, Write, WriteExpect, WriteStorage};
 
 use crate::chunk_manager::ChunkManager;
 use crate::constants::{GRAVITY, PLAYER_HALF_WIDTH};
-use crate::ecs::resources::AppWindow;
 use crate::input::InputCache;
 use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};

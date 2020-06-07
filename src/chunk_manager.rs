@@ -7,7 +7,7 @@ use std::borrow::Borrow;
 use crate::shapes::{write_unit_cube_to_ptr};
 use noise::{SuperSimplex, NoiseFn, Point2};
 use rand::random;
-use crate::types::UVMap;
+use crate::types::TexturePack;
 use std::ptr::null;
 use crate::ambient_occlusion::compute_ao_of_block;
 
@@ -150,7 +150,7 @@ impl ChunkManager {
     // uv_map: the UV coordinates of all the block's faces
     // UV coordinates are composed of 4 floats, the first 2 are the bottom left corner and the last 2 are the top right corner (all between 0.0 and 1.0)
     // These specify the subtexture to use when rendering
-    pub fn rebuild_dirty_chunks(&mut self, uv_map: &UVMap) {
+    pub fn rebuild_dirty_chunks(&mut self, uv_map: &TexturePack) {
         // Collect all the dirty chunks
         // Nearby chunks can be also dirty if the change happens at the edge
         let mut dirty_chunks: HashSet<(i32, i32, i32)> = HashSet::new();
