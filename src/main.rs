@@ -162,7 +162,7 @@ fn main() {
         .with(MainHandItemChanged)
         .build();
 
-    let mut draw_main_hand = DrawMainHand;
+    let mut draw_main_hand = DrawMainHand::new();
 
     loop {
         dispatcher.dispatch(&world);
@@ -291,6 +291,29 @@ fn main() {
         //     gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36 as i32));
         //     gl_call!(gl::Enable(gl::DEPTH_TEST));
         // }
+        drop(player_states);
+        drop(player_physics_states);
+        drop(chunk_manager);
+        drop(particle_systems);
+        drop(shaders);
+        drop(global_timer);
+        drop(texture_pack);
+
+        RunNow::run_now(&mut draw_main_hand, &world);
+
+        let mut player_states = world.write_component::<PlayerState>();
+        let mut player_physics_states = world.write_component::<Interpolator<PlayerPhysicsState>>();
+
+        let mut player_state = player_states.get_mut(player).unwrap();
+        let mut player_physics_state = player_physics_states.get_mut(player).unwrap();
+
+        let mut chunk_manager = world.fetch_mut::<ChunkManager>();
+        let mut particle_systems = world.fetch_mut::<ParticleSystems>();
+        let mut shaders = world.fetch_mut::<Shaders>();
+
+        let global_timer = world.fetch::<Timer>();
+        let texture_pack = world.fetch::<TexturePack>();
+
 
         // Draw GUI
         {
@@ -309,15 +332,5 @@ fn main() {
             inventory.draw_hotbar_items(&mut item_shader);
             gl_call!(gl::Enable(gl::DEPTH_TEST));
         }
-
-        drop(player_states);
-        drop(player_physics_states);
-        drop(chunk_manager);
-        drop(particle_systems);
-        drop(shaders);
-        drop(global_timer);
-        drop(texture_pack);
-
-        RunNow::run_now(&mut draw_main_hand, &world);
     }
 }

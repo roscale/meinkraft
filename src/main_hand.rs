@@ -9,16 +9,25 @@ use crate::types::TexturePack;
 
 #[derive(Component)]
 pub struct MainHand {
-    showing_item: Option<BlockID>,
+    pub begin_switch: bool,
+    pub showing_item: Option<BlockID>,
     pub render: MainHandRender,
+    pub switching_to: Option<BlockID>,
 }
 
 impl MainHand {
     pub fn new() -> Self {
         Self {
+            begin_switch: false,
             showing_item: None,
             render: MainHandRender::new(),
+            switching_to: None,
         }
+    }
+
+    pub fn switch_item_to(&mut self, item: Option<BlockID>) {
+        self.switching_to = item;
+        self.begin_switch = true;
     }
 
     pub fn set_showing_item(&mut self, item: Option<BlockID>) {
@@ -36,7 +45,7 @@ impl MainHand {
 pub struct MainHandRender {
     vao: u32,
     pub vbo: u32,
-    dirty: bool,
+    pub dirty: bool,
 }
 
 impl MainHandRender {

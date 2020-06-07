@@ -8,6 +8,15 @@ use glfw::WindowEvent;
 
 pub struct InventoryHandleInput;
 
+impl InventoryHandleInput {
+    fn select_item(inventory: &mut Inventory, index: usize, f: &mut dyn FnMut()) {
+        if inventory.selected_hotbar_slot != index {
+            inventory.select_item(index);
+            f();
+        }
+    }
+}
+
 impl<'a> System<'a> for InventoryHandleInput {
     type SystemData = (
         Entities<'a>,
@@ -32,6 +41,7 @@ impl<'a> System<'a> for InventoryHandleInput {
             for event in &input_cache.events {
                 use glfw::{Key, Action};
                 match event {
+
                     WindowEvent::Scroll(_, y) => {
                         if y.is_sign_positive() {
                             inventory.select_previous_item();
@@ -40,42 +50,15 @@ impl<'a> System<'a> for InventoryHandleInput {
                         }
                         f();
                     }
-                    WindowEvent::Key(Key::Num1, _, Action::Press, _) => {
-                        inventory.select_item(0);
-                        f();
-                    },
-                    WindowEvent::Key(Key::Num2, _, Action::Press, _) => {
-                        inventory.select_item(1);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num3, _, Action::Press, _) => {
-                        inventory.select_item(2);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num4, _, Action::Press, _) => {
-                        inventory.select_item(3);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num5, _, Action::Press, _) => {
-                        inventory.select_item(4);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num6, _, Action::Press, _) => {
-                        inventory.select_item(5);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num7, _, Action::Press, _) => {
-                        inventory.select_item(6);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num8, _, Action::Press, _) => {
-                        inventory.select_item(7);
-                        f();
-                    }
-                    WindowEvent::Key(Key::Num9, _, Action::Press, _) => {
-                        inventory.select_item(8);
-                        f();
-                    }
+                    WindowEvent::Key(Key::Num1, _, Action::Press, _) => Self::select_item(inventory, 0, &mut f),
+                    WindowEvent::Key(Key::Num2, _, Action::Press, _) => Self::select_item(inventory, 1, &mut f),
+                    WindowEvent::Key(Key::Num3, _, Action::Press, _) => Self::select_item(inventory, 2, &mut f),
+                    WindowEvent::Key(Key::Num4, _, Action::Press, _) => Self::select_item(inventory, 3, &mut f),
+                    WindowEvent::Key(Key::Num5, _, Action::Press, _) => Self::select_item(inventory, 4, &mut f),
+                    WindowEvent::Key(Key::Num6, _, Action::Press, _) => Self::select_item(inventory, 5, &mut f),
+                    WindowEvent::Key(Key::Num7, _, Action::Press, _) => Self::select_item(inventory, 6, &mut f),
+                    WindowEvent::Key(Key::Num8, _, Action::Press, _) => Self::select_item(inventory, 7, &mut f),
+                    WindowEvent::Key(Key::Num9, _, Action::Press, _) => Self::select_item(inventory, 8, &mut f),
                     _ => {}
                 }
             }

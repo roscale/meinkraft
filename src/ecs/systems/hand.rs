@@ -10,6 +10,9 @@ use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
 use crate::types::{Shaders, TexturePack};
 use crate::util::Forward;
+use num_traits::Signed;
+use std::time::Instant;
+use crate::timer::Timer;
 
 pub struct UpdateMainHand;
 
@@ -28,14 +31,26 @@ impl<'a> System<'a> for UpdateMainHand {
         ) = data;
 
         for (_, inventory, main_hand) in (&main_hand_item_changed, &inventory, &mut main_hand).join() {
-            main_hand.set_showing_item(inventory.get_selected_item());
+            main_hand.switch_item_to(inventory.get_selected_item());
         }
 
         main_hand_item_changed.clear();
     }
 }
 
-pub struct DrawMainHand;
+pub struct DrawMainHand {
+    pub y_velocity: f32,
+    pub y_offset: Interpolator<f32>,
+}
+
+impl DrawMainHand {
+    pub fn new() -> Self {
+        Self {
+            y_velocity: 0.0,
+            y_offset: Interpolator::new(1.0 / 30.0, 0.0),
+        }
+    }
+}
 
 impl<'a> System<'a> for DrawMainHand {
     type SystemData = (
@@ -43,6 +58,7 @@ impl<'a> System<'a> for DrawMainHand {
         ReadStorage<'a, PlayerState>,
         ReadStorage<'a, Interpolator<PlayerPhysicsState>>,
         Read<'a, TexturePack>,
+        Read<'a, Timer>,
         Write<'a, Shaders>,
     );
 
@@ -52,10 +68,36 @@ impl<'a> System<'a> for DrawMainHand {
             player_state,
             player_physics_state,
             texture_pack,
+            global_timer,
             mut shaders,
         ) = data;
 
         for (player_state, player_physics_state, main_hand) in (&player_state, &player_physics_state, &mut main_hand).join() {
+            if main_hand.begin_switch {
+                main_hand.begin_switch = false;
+                if self.y_velocity.is_sign_positive() {
+                    self.y_velocity = -8.0;
+                }
+            }
+
+            self.y_offset.interpolate_hand(global_timer.time(), self.y_velocity);
+            let mut y_offset_latest = self.y_offset.get_latest_state_mut();
+
+            if *y_offset_latest < -1.2 {
+                *y_offset_latest = -1.2;
+                self.y_velocity *= -1.0;
+                main_hand.set_showing_item(main_hand.switching_to);
+            }
+
+            if *y_offset_latest > 0.0 {
+                *y_offset_latest = 0.0;
+                self.y_velocity = 0.0;
+            }
+
+            if main_hand.showing_item.is_none() {
+                return;
+            }
+
             let view_matrix = {
                 let player_physics_state = player_physics_state.get_interpolated_state();
                 let camera_position = player_physics_state.position + vec3(0., *player_state.camera_height.get_interpolated_state(), 0.);
@@ -75,7 +117,7 @@ impl<'a> System<'a> for DrawMainHand {
 
             let model_matrix = {
                 let translate_matrix = Matrix4::new_translation(&(vec3(
-                    camera_pos.x, camera_pos.y, camera_pos.z) + up * -1.2));
+                    camera_pos.x, camera_pos.y, camera_pos.z) + up * -1.2 + up * *self.y_offset.get_interpolated_state()));
 
                 let translate_matrix2 = Matrix4::new_translation(&(vec3(2.0, 0.0, 0.0)));
 
@@ -106,5 +148,13 @@ impl<'a> System<'a> for DrawMainHand {
             gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36 as i32));
             gl_call!(gl::Enable(gl::DEPTH_TEST));
         }
+    }
+}
+
+impl Interpolator<f32> {
+    pub fn interpolate_hand(&mut self, time: Instant, add: f32) {
+        self.step(time, &mut |offset, _t, dt| {
+            offset + add * dt
+        });
     }
 }
