@@ -3,26 +3,26 @@ use std::ops::Deref;
 use std::process::exit;
 use std::time::Instant;
 
-use glfw::{Action, Key, WindowEvent, MouseButton};
+use glfw::{Action, Key, MouseButton, WindowEvent};
 use itertools::Itertools;
-use nalgebra_glm::{vec3, IVec3};
+use nalgebra_glm::{IVec3, vec3};
 use num_traits::Zero;
-use specs::{Read, ReadStorage, System, Write, WriteStorage, Entities};
+use specs::{Entities, Join, Read, ReadStorage, System, Write, WriteStorage};
 
+use crate::aabb::{AABB, get_block_aabb};
+use crate::chunk::BlockID;
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{FLYING_TRIGGER_INTERVAL, FOV, GRAVITY, JUMP_IMPULSE, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, SPRINTING_TRIGGER_INTERVAL, REACH_DISTANCE};
+use crate::constants::{FLYING_TRIGGER_INTERVAL, FOV, GRAVITY, JUMP_IMPULSE, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, REACH_DISTANCE, SPRINTING_TRIGGER_INTERVAL};
+use crate::ecs::components::MainHandItemChanged;
 use crate::input::InputCache;
+use crate::inventory::Inventory;
+use crate::particle_system::ParticleSystem;
 use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
-use crate::timer::Timer;
 use crate::raycast;
+use crate::timer::Timer;
+use crate::types::{ParticleSystems, TexturePack};
 use crate::util::Forward;
-use crate::types::{TexturePack, ParticleSystems};
-use crate::particle_system::ParticleSystem;
-use crate::chunk::BlockID;
-use crate::aabb::{AABB, get_block_aabb};
-use crate::inventory::Inventory;
-use crate::ecs::components::MainHandItemChanged;
 
 pub struct HandlePlayerInput;
 
@@ -94,50 +94,10 @@ impl<'a> System<'a> for HandlePlayerInput {
                         }
                         player_state.sprint_last_toggled = Instant::now();
                     }
-
-                    glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
-                        player_state.block_placing_last_executed = Instant::now();
-
-                        match button {
-                            MouseButton::Button1 => {
-                                if let &Some(((x, y, z), _)) = &player_state.targeted_block {
-                                    let mut particle_system = particle_systems.get_mut("block_particles").unwrap();
-                                    break_block((x, y, z), &mut chunk_manager, &mut particle_system, &texture_pack);
-                                }
-                            }
-                            MouseButton::Button2 => {
-                                if let &Some(((x, y, z), normal)) = &player_state.targeted_block {
-                                    place_block((x, y, z), &normal, &player_physics_state.aabb, &inventory, &mut chunk_manager);
-                                }
-                            },
-                            _ => {}
-                        }
-                    }
                     _ => {}
                 }
             }
         }
-    }
-}
-
-fn break_block((x, y, z): (i32, i32, i32), chunk_manager: &mut ChunkManager, particle_system: &mut ParticleSystem, uv_map: &TexturePack) {
-    let block = chunk_manager.get_block(x, y, z).unwrap();
-    chunk_manager.set_block(BlockID::Air, x, y, z);
-    particle_system.spawn_block_breaking_particles(vec3(x as f32, y as f32, z as f32), &uv_map, block);
-    info!("Destroyed block at ({} {} {})", x, y, z);
-}
-
-fn place_block((x, y, z): (i32, i32, i32), normal: &IVec3, player_aabb: &AABB, inventory: &Inventory, chunk_manager: &mut ChunkManager) {
-    let adjacent_block = IVec3::new(x, y, z) + normal;
-    let adjacent_block_aabb = get_block_aabb(&vec3(
-        adjacent_block.x as f32,
-        adjacent_block.y as f32,
-        adjacent_block.z as f32));
-    if !player_aabb.intersects(&adjacent_block_aabb) {
-        if let Some(block) = inventory.get_selected_item() {
-            chunk_manager.set_block(block, adjacent_block.x, adjacent_block.y, adjacent_block.z);
-        }
-        info!("Put block at ({} {} {})", adjacent_block.x, adjacent_block.y, adjacent_block.z);
     }
 }
 
@@ -147,9 +107,6 @@ impl<'a> System<'a> for UpdatePlayerState {
     type SystemData = (
         Read<'a, Timer>,
         Read<'a, InputCache>,
-        Read<'a, TexturePack>,
-        ReadStorage<'a, Inventory>,
-        Write<'a, ParticleSystems>,
         Write<'a, ChunkManager>,
         WriteStorage<'a, PlayerState>,
         ReadStorage<'a, Interpolator<PlayerPhysicsState>>,
@@ -159,9 +116,6 @@ impl<'a> System<'a> for UpdatePlayerState {
         let (
             global_timer,
             input_cache,
-            texture_pack,
-            inventory,
-            mut particle_systems,
             mut chunk_manager,
             mut player_state,
             mut player_physics_state,
@@ -169,7 +123,7 @@ impl<'a> System<'a> for UpdatePlayerState {
 
         use specs::Join;
 
-        for (player_state, player_physics_state, inventory) in (&mut player_state, &player_physics_state, &inventory).join() {
+        for (player_state, player_physics_state) in (&mut player_state, &player_physics_state).join() {
             let mut player_state = player_state as &mut PlayerState;
             let player_physics_state = player_physics_state as &Interpolator<PlayerPhysicsState>;
             let t = global_timer.time();
@@ -229,25 +183,99 @@ impl<'a> System<'a> for UpdatePlayerState {
                     &fw.normalize(),
                     REACH_DISTANCE)
             };
+        }
+    }
+}
 
-            // Repeated block placing
-            {
-                let now = Instant::now();
-                if now.duration_since(player_state.block_placing_last_executed).as_secs_f32() >= 0.25 {
-                    if input_cache.is_mouse_button_pressed(glfw::MouseButtonLeft) {
-                        if let &Some(((x, y, z), _)) = &player_state.targeted_block {
-                            let mut particle_system = particle_systems.get_mut("block_particles").unwrap();
-                            break_block((x, y, z), &mut chunk_manager, &mut particle_system, &texture_pack);
-                        }
+pub struct PlaceAndBreakBlocks;
+
+impl<'a> System<'a> for PlaceAndBreakBlocks {
+    type SystemData = (
+        Write<'a, ChunkManager>,
+        Write<'a, ParticleSystems>,
+        Read<'a, InputCache>,
+        Read<'a, TexturePack>,
+        WriteStorage<'a, PlayerState>,
+        ReadStorage<'a, Interpolator<PlayerPhysicsState>>,
+        ReadStorage<'a, Inventory>,
+    );
+
+    fn run(&mut self, data: Self::SystemData) {
+        let (
+            mut chunk_manager,
+            mut particle_systems,
+            input_cache,
+            texture_pack,
+            mut player_state,
+            player_physics_state,
+            inventory,
+        ) = data;
+
+        for (player_state, player_physics_state, inventory) in (&mut player_state, &player_physics_state, &inventory).join() {
+            let player_physics_state = player_physics_state.get_latest_state();
+
+            // Place or break a block by clicking on a mouse button
+            for event in &input_cache.events {
+                match event {
+                    glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
                         player_state.block_placing_last_executed = Instant::now();
-                    } else if input_cache.is_mouse_button_pressed(glfw::MouseButtonRight) {
-                        if let &Some(((x, y, z), normal)) = &player_state.targeted_block {
-                            place_block((x, y, z), &normal, &player_physics_state.get_latest_state().aabb, &inventory, &mut chunk_manager);
+
+                        match button {
+                            MouseButton::Button1 => {
+                                if let &Some(((x, y, z), _)) = &player_state.targeted_block {
+                                    let mut particle_system = particle_systems.get_mut("block_particles").unwrap();
+                                    break_block((x, y, z), &mut chunk_manager, &mut particle_system, &texture_pack);
+                                }
+                            }
+                            MouseButton::Button2 => {
+                                if let &Some(((x, y, z), normal)) = &player_state.targeted_block {
+                                    place_block((x, y, z), &normal, &player_physics_state.aabb, &inventory, &mut chunk_manager);
+                                }
+                            },
+                            _ => {}
                         }
-                        player_state.block_placing_last_executed = Instant::now();
                     }
+                    _ => {}
+                }
+            }
+
+            // Repeated block placing or breaking while the mouse button is pressed
+            let now = Instant::now();
+            if now.duration_since(player_state.block_placing_last_executed).as_secs_f32() >= 0.25 {
+                if input_cache.is_mouse_button_pressed(glfw::MouseButtonLeft) {
+                    if let &Some(((x, y, z), _)) = &player_state.targeted_block {
+                        let mut particle_system = particle_systems.get_mut("block_particles").unwrap();
+                        break_block((x, y, z), &mut chunk_manager, &mut particle_system, &texture_pack);
+                    }
+                    player_state.block_placing_last_executed = Instant::now();
+                } else if input_cache.is_mouse_button_pressed(glfw::MouseButtonRight) {
+                    if let &Some(((x, y, z), normal)) = &player_state.targeted_block {
+                        place_block((x, y, z), &normal, &player_physics_state.aabb, &inventory, &mut chunk_manager);
+                    }
+                    player_state.block_placing_last_executed = Instant::now();
                 }
             }
         }
+    }
+}
+
+fn break_block((x, y, z): (i32, i32, i32), chunk_manager: &mut ChunkManager, particle_system: &mut ParticleSystem, uv_map: &TexturePack) {
+    let block = chunk_manager.get_block(x, y, z).unwrap();
+    chunk_manager.set_block(BlockID::Air, x, y, z);
+    particle_system.spawn_block_breaking_particles(vec3(x as f32, y as f32, z as f32), &uv_map, block);
+    info!("Destroyed block at ({} {} {})", x, y, z);
+}
+
+fn place_block((x, y, z): (i32, i32, i32), normal: &IVec3, player_aabb: &AABB, inventory: &Inventory, chunk_manager: &mut ChunkManager) {
+    let adjacent_block = IVec3::new(x, y, z) + normal;
+    let adjacent_block_aabb = get_block_aabb(&vec3(
+        adjacent_block.x as f32,
+        adjacent_block.y as f32,
+        adjacent_block.z as f32));
+    if !player_aabb.intersects(&adjacent_block_aabb) {
+        if let Some(block) = inventory.get_selected_item() {
+            chunk_manager.set_block(block, adjacent_block.x, adjacent_block.y, adjacent_block.z);
+        }
+        info!("Put block at ({} {} {})", adjacent_block.x, adjacent_block.y, adjacent_block.z);
     }
 }

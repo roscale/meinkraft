@@ -14,7 +14,7 @@ use glfw::{Action, Context, Key, MouseButton};
 use nalgebra::{Matrix4, Vector3};
 use nalgebra_glm::{IVec3, Mat4, Vec3};
 use nalgebra_glm::vec3;
-use specs::{Builder, DispatcherBuilder, World, WorldExt};
+use specs::{Builder, DispatcherBuilder, World, WorldExt, RunNow};
 
 use ecs::components::*;
 use ecs::systems::*;
@@ -36,9 +36,10 @@ use crate::player::{PlayerPhysicsState, PlayerState};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::centered_unit_cube;
 use crate::texture_pack::generate_array_texture;
-use crate::types::{ParticleSystems, TexturePack};
+use crate::types::{ParticleSystems, TexturePack, Shaders};
 use crate::util::Forward;
 use crate::window::create_window;
+use specs::shred::RunWithPool;
 
 #[macro_use]
 pub mod debugging;
@@ -98,8 +99,9 @@ fn main() {
         })
         .with_thread_local(InventoryHandleInput)
         .with_thread_local(HandlePlayerInput)
-        .with_thread_local(UpdatePlayerState)
         .with_thread_local(UpdatePlayerPhysics)
+        .with_thread_local(UpdatePlayerState)
+        .with_thread_local(PlaceAndBreakBlocks)
         .with_thread_local(UpdateMainHand)
         .with_thread_local(AdvanceGlobalTime)
         .with_thread_local(FpsCounter::new())
@@ -123,6 +125,16 @@ fn main() {
         particle_systems.insert("block_particles", ParticleSystem::new(500));
         particle_systems
     });
+    world.insert({
+        let mut shaders_resource = Shaders::new();
+        shaders_resource.insert("voxel_shader", ShaderProgram::compile("src/shaders/voxel.vert", "src/shaders/voxel.frag"));
+        shaders_resource.insert("gui_shader", ShaderProgram::compile("src/shaders/gui.vert", "src/shaders/gui.frag"));
+        shaders_resource.insert("outline_shader", ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag"));
+        shaders_resource.insert("item_shader", ShaderProgram::compile("src/shaders/item.vert", "src/shaders/item.frag"));
+        shaders_resource.insert("particle_shader", ShaderProgram::compile("src/shaders/particle.vert", "src/shaders/particle.frag"));
+        shaders_resource.insert("hand_shader", ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag"));
+        shaders_resource
+    });
 
     {
         let gui_icons_texture = create_gui_icons_texture();
@@ -133,13 +145,6 @@ fn main() {
         gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 2));
         gl_call!(gl::BindTexture(gl::TEXTURE_2D, gui_widgets_texture));
     }
-
-    let mut voxel_shader = ShaderProgram::compile("src/shaders/voxel.vert", "src/shaders/voxel.frag");
-    let mut gui_shader = ShaderProgram::compile("src/shaders/gui.vert", "src/shaders/gui.frag");
-    let mut outline_shader = ShaderProgram::compile("src/shaders/outline.vert", "src/shaders/outline.frag");
-    let mut item_shader = ShaderProgram::compile("src/shaders/item.vert", "src/shaders/item.frag");
-    let mut particle_shader = ShaderProgram::compile("src/shaders/particle.vert", "src/shaders/particle.frag");
-    let mut hand_shader = ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag");
 
     let crosshair_vao = create_crosshair_vao();
     let block_outline_vao = create_block_outline_vao();
@@ -157,19 +162,20 @@ fn main() {
         .with(MainHandItemChanged)
         .build();
 
-    // let mut main_hand = MainHand::new();
+    let mut draw_main_hand = DrawMainHand;
 
     loop {
         dispatcher.dispatch(&world);
 
-        let mut player_state = world.write_component::<PlayerState>();
-        let mut player_physics_state = world.write_component::<Interpolator<PlayerPhysicsState>>();
+        let mut player_states = world.write_component::<PlayerState>();
+        let mut player_physics_states = world.write_component::<Interpolator<PlayerPhysicsState>>();
 
-        let mut player_state = player_state.get_mut(player).unwrap();
-        let mut player_physics_state = player_physics_state.get_mut(player).unwrap();
+        let mut player_state = player_states.get_mut(player).unwrap();
+        let mut player_physics_state = player_physics_states.get_mut(player).unwrap();
 
         let mut chunk_manager = world.fetch_mut::<ChunkManager>();
         let mut particle_systems = world.fetch_mut::<ParticleSystems>();
+        let mut shaders = world.fetch_mut::<Shaders>();
 
         let global_timer = world.fetch::<Timer>();
         let texture_pack = world.fetch::<TexturePack>();
@@ -191,6 +197,7 @@ fn main() {
             let texture_pack = world.fetch::<TexturePack>();
             chunk_manager.rebuild_dirty_chunks(&texture_pack);
 
+            let mut voxel_shader = shaders.get_mut("voxel_shader").unwrap();
             voxel_shader.use_program();
             voxel_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
             voxel_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
@@ -207,6 +214,7 @@ fn main() {
         // Draw particles
         {
             gl_call!(gl::Disable(gl::CULL_FACE));
+            let mut particle_shader = shaders.get_mut("particle_shader").unwrap();
             particle_shader.use_program();
             // particle_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
             // particle_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
@@ -224,6 +232,7 @@ fn main() {
             let (x, y, z) = (x as f32, y as f32, z as f32);
             let model_matrix = Matrix4::new_translation(&vec3(x, y, z));
 
+            let mut outline_shader = shaders.get_mut("outline_shader").unwrap();
             outline_shader.use_program();
             outline_shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
             outline_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
@@ -235,67 +244,80 @@ fn main() {
         }
 
         // Draw hand
-        {
-            let mut main_hand = world.write_component::<MainHand>();
-            let mut main_hand = main_hand.get_mut(player).unwrap();
-
-            // main_hand.set_showing_item(player_state.inventory.get_selected_item());
-            main_hand.update_if_dirty(&texture_pack);
-
-            let player_pos = player_physics_state.get_interpolated_state().position;
-            let camera_height = *player_state.camera_height.get_interpolated_state();
-            let camera_pos = player_pos + vec3(0., camera_height, 0.);
-
-            let forward = &player_state.rotation.forward().normalize();
-            let right = forward.cross(&Vector3::y()).normalize();
-            let up = right.cross(&forward).normalize();
-
-            let model_matrix = {
-                let translate_matrix = Matrix4::new_translation(&(vec3(
-                    camera_pos.x, camera_pos.y, camera_pos.z) + up * -1.2));
-
-                let translate_matrix2 = Matrix4::new_translation(&(vec3(2.0, 0.0, 0.0)));
-
-                let rotate_matrix = nalgebra_glm::rotation(-player_state.rotation.y, &vec3(0.0, 1.0, 0.0));
-                let rotate_matrix = nalgebra_glm::rotation(player_state.rotation.x, &right) * rotate_matrix;
-
-                let rotate_matrix = nalgebra_glm::rotation(-35.0f32.to_radians(), &up) * rotate_matrix;
-
-                translate_matrix * rotate_matrix * translate_matrix2
-            };
-
-            let projection_matrix = {
-                let fov = 1.22173;
-                nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, fov, NEAR_PLANE, FAR_PLANE)
-            };
-
-            hand_shader.use_program();
-            hand_shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-            hand_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
-            // hand_shader.set_uniform_matrix4fv("model_view", model_view.as_ptr());
-            hand_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
-            hand_shader.set_uniform1i("tex", 0);
-
-            gl_call!(gl::BindVertexArray(main_hand.render.vbo));
-
-            gl_call!(gl::Disable(gl::DEPTH_TEST));
-            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36 as i32));
-            gl_call!(gl::Enable(gl::DEPTH_TEST));
-        }
+        // {
+        //     let mut main_hand = world.write_component::<MainHand>();
+        //     let mut main_hand = main_hand.get_mut(player).unwrap();
+        //
+        //     // main_hand.set_showing_item(player_state.inventory.get_selected_item());
+        //     main_hand.update_if_dirty(&texture_pack);
+        //
+        //     let player_pos = player_physics_state.get_interpolated_state().position;
+        //     let camera_height = *player_state.camera_height.get_interpolated_state();
+        //     let camera_pos = player_pos + vec3(0., camera_height, 0.);
+        //
+        //     let forward = &player_state.rotation.forward().normalize();
+        //     let right = forward.cross(&Vector3::y()).normalize();
+        //     let up = right.cross(&forward).normalize();
+        //
+        //     let model_matrix = {
+        //         let translate_matrix = Matrix4::new_translation(&(vec3(
+        //             camera_pos.x, camera_pos.y, camera_pos.z) + up * -1.2));
+        //
+        //         let translate_matrix2 = Matrix4::new_translation(&(vec3(2.0, 0.0, 0.0)));
+        //
+        //         let rotate_matrix = nalgebra_glm::rotation(-player_state.rotation.y, &vec3(0.0, 1.0, 0.0));
+        //         let rotate_matrix = nalgebra_glm::rotation(player_state.rotation.x, &right) * rotate_matrix;
+        //
+        //         let rotate_matrix = nalgebra_glm::rotation(-35.0f32.to_radians(), &up) * rotate_matrix;
+        //
+        //         translate_matrix * rotate_matrix * translate_matrix2
+        //     };
+        //
+        //     let projection_matrix = {
+        //         let fov = 1.22173;
+        //         nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, fov, NEAR_PLANE, FAR_PLANE)
+        //     };
+        //
+        //     hand_shader.use_program();
+        //     hand_shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+        //     hand_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
+        //     // hand_shader.set_uniform_matrix4fv("model_view", model_view.as_ptr());
+        //     hand_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+        //     hand_shader.set_uniform1i("tex", 0);
+        //
+        //     gl_call!(gl::BindVertexArray(main_hand.render.vbo));
+        //
+        //     gl_call!(gl::Disable(gl::DEPTH_TEST));
+        //     gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36 as i32));
+        //     gl_call!(gl::Enable(gl::DEPTH_TEST));
+        // }
 
         // Draw GUI
         {
             let mut inventory = world.write_component::<Inventory>();
             let mut inventory = inventory.get_mut(player).unwrap();
 
+            let mut gui_shader = shaders.get_mut("gui_shader").unwrap();
             draw_crosshair(crosshair_vao, &mut gui_shader);
             gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
             gl_call!(gl::Disable(gl::DEPTH_TEST));
             inventory.update_dirty_items(&texture_pack);
             inventory.draw_hotbar(hotbar_vao, &mut gui_shader);
             inventory.draw_hotbar_selection_box(hotbar_selection_vao, &mut gui_shader);
+
+            let mut item_shader = shaders.get_mut("item_shader").unwrap();
             inventory.draw_hotbar_items(&mut item_shader);
             gl_call!(gl::Enable(gl::DEPTH_TEST));
         }
+
+        drop(player_states);
+        drop(player_physics_states);
+        drop(chunk_manager);
+        drop(particle_systems);
+        drop(shaders);
+        drop(global_timer);
+        drop(texture_pack);
+
+        RunNow::run_now(&mut draw_main_hand, &world);
     }
 }
