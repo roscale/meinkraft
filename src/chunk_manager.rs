@@ -1,15 +1,17 @@
-use std::collections::{HashMap, HashSet};
-use crate::chunk::{Chunk, BlockID, BlockIterator};
-use nalgebra_glm::{Mat4, vec3};
-use crate::shader_compilation::ShaderProgram;
-use nalgebra::Matrix4;
 use std::borrow::Borrow;
-use crate::shapes::{write_unit_cube_to_ptr};
-use noise::{SuperSimplex, NoiseFn, Point2};
-use rand::random;
-use crate::types::TexturePack;
+use std::collections::{HashMap, HashSet};
 use std::ptr::null;
+
+use nalgebra::Matrix4;
+use nalgebra_glm::{Mat4, vec3};
+use noise::{NoiseFn, Point2, SuperSimplex};
+use rand::random;
+
 use crate::ambient_occlusion::compute_ao_of_block;
+use crate::chunk::{BlockID, BlockIterator, Chunk};
+use crate::shader_compilation::ShaderProgram;
+use crate::shapes::write_unit_cube_to_ptr;
+use crate::types::TexturePack;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -28,19 +30,19 @@ impl ChunkManager {
     }
 
     pub fn generate_terrain(&mut self) {
-        let n = 5;
+        let render_distance = 5;
 
         let ss = SuperSimplex::new();
         for y in 0..16 {
-            for z in -n..=n {
-                for x in -n..=n {
+            for z in -render_distance..=render_distance {
+                for x in -render_distance..=render_distance {
                     self.loaded_chunks.insert((x, y, z), Chunk::empty());
                 }
             }
         }
 
-        for x in -16 * n..16 * n {
-            for z in -16 * n..16 * n {
+        for x in -16 * render_distance..16 * render_distance {
+            for z in -16 * render_distance..16 * render_distance {
                 // Scale the input for the noise function
                 let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
                 let y = ss.get(Point2::from([xf, zf]));

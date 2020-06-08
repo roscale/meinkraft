@@ -1,4 +1,3 @@
-use glfw::WindowEvent;
 use nalgebra::Matrix4;
 use nalgebra_glm::{Mat4, vec3};
 
@@ -7,8 +6,6 @@ use crate::constants::{GUI_SCALING, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::inventory::item::ItemStack;
 use crate::shader_compilation::ShaderProgram;
 use crate::types::TexturePack;
-use specs::WriteStorage;
-use crate::ecs::components::MainHandItemChanged;
 
 pub mod item;
 

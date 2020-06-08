@@ -1,7 +1,6 @@
-use itertools::Itertools;
 use nalgebra_glm::vec3;
 use num_traits::Zero;
-use specs::{Read, ReadStorage, System, Write, WriteStorage};
+use specs::{Read, System, WriteStorage};
 
 use crate::chunk_manager::ChunkManager;
 use crate::constants::{GRAVITY, PLAYER_HALF_WIDTH};
@@ -23,7 +22,7 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
 
     fn run(&mut self, data: Self::SystemData) {
         let (
-            mut global_timer,
+            global_timer,
             input_cache,
             chunk_manager,
             mut player_physics_state,
@@ -73,6 +72,7 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
                         is_player_on_ground |= player.separate_from_block(&v, &colliding_block);
                     }
 
+                    // Don't let the player fall if he's sneaking on the block
                     if input_cache.is_key_pressed(glfw::Key::LeftShift)
                         && player_state.is_on_ground
                         && !will_hit_ground(&player)

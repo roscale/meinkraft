@@ -1,12 +1,10 @@
-use nalgebra_glm::Vec3;
 use specs::Component;
 use specs::DenseVecStorage;
 use specs::NullStorage;
 
-use crate::aabb::AABB;
+use crate::inventory::Inventory;
 use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
-use crate::inventory::Inventory;
 
 impl Component for Interpolator<PlayerPhysicsState> {
     type Storage = DenseVecStorage<Self>;

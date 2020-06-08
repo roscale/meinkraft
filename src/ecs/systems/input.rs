@@ -1,17 +1,10 @@
 use std::process::exit;
 use std::sync::mpsc::Receiver;
 
-use glfw::{Action, Glfw, Key, Window, WindowEvent, Context};
-use itertools::Itertools;
-use nalgebra_glm::vec3;
-use num_traits::Zero;
-use specs::{Read, ReadStorage, System, Write, WriteExpect, WriteStorage};
+use glfw::{Action, Context, Glfw, Key, Window, WindowEvent};
+use specs::{System, Write};
 
-use crate::chunk_manager::ChunkManager;
-use crate::constants::{GRAVITY, PLAYER_HALF_WIDTH};
 use crate::input::InputCache;
-use crate::physics::Interpolator;
-use crate::player::{PlayerPhysicsState, PlayerState};
 use crate::timer::Timer;
 
 pub struct ReadWindowEvents {

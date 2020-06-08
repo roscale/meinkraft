@@ -1,6 +1,8 @@
+use std::time::Instant;
+
 use nalgebra::{Matrix4, Vector3};
 use nalgebra_glm::vec3;
-use specs::{Entities, Join, Read, ReadStorage, Storage, System, Write, WriteStorage};
+use specs::{Join, Read, ReadStorage, System, Write, WriteStorage};
 
 use crate::constants::{FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::ecs::components::MainHandItemChanged;
@@ -8,11 +10,9 @@ use crate::inventory::Inventory;
 use crate::main_hand::MainHand;
 use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
+use crate::timer::Timer;
 use crate::types::{Shaders, TexturePack};
 use crate::util::Forward;
-use num_traits::Signed;
-use std::time::Instant;
-use crate::timer::Timer;
 
 pub struct UpdateMainHand;
 
@@ -38,12 +38,12 @@ impl<'a> System<'a> for UpdateMainHand {
     }
 }
 
-pub struct DrawMainHand {
+pub struct RenderMainHand {
     pub y_velocity: f32,
     pub y_offset: Interpolator<f32>,
 }
 
-impl DrawMainHand {
+impl RenderMainHand {
     pub fn new() -> Self {
         Self {
             y_velocity: 0.0,
@@ -52,7 +52,7 @@ impl DrawMainHand {
     }
 }
 
-impl<'a> System<'a> for DrawMainHand {
+impl<'a> System<'a> for RenderMainHand {
     type SystemData = (
         WriteStorage<'a, MainHand>,
         ReadStorage<'a, PlayerState>,
@@ -81,7 +81,7 @@ impl<'a> System<'a> for DrawMainHand {
             }
 
             self.y_offset.interpolate_hand(global_timer.time(), self.y_velocity);
-            let mut y_offset_latest = self.y_offset.get_latest_state_mut();
+            let y_offset_latest = self.y_offset.get_latest_state_mut();
 
             if *y_offset_latest < -1.2 {
                 *y_offset_latest = -1.2;
@@ -138,11 +138,10 @@ impl<'a> System<'a> for DrawMainHand {
             hand_shader.use_program();
             hand_shader.set_uniform_matrix4fv("model", model_matrix.as_ptr());
             hand_shader.set_uniform_matrix4fv("view", view_matrix.as_ptr());
-            // hand_shader.set_uniform_matrix4fv("model_view", model_view.as_ptr());
             hand_shader.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
             hand_shader.set_uniform1i("tex", 0);
 
-            gl_call!(gl::BindVertexArray(main_hand.render.vbo));
+            gl_call!(gl::BindVertexArray(main_hand.render.vao));
 
             gl_call!(gl::Disable(gl::DEPTH_TEST));
             gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36 as i32));

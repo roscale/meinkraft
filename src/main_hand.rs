@@ -43,7 +43,7 @@ impl MainHand {
 }
 
 pub struct MainHandRender {
-    vao: u32,
+    pub vao: u32,
     pub vbo: u32,
     pub dirty: bool,
 }

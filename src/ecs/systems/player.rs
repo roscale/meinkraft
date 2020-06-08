@@ -1,19 +1,14 @@
-use std::borrow::Borrow;
-use std::ops::Deref;
-use std::process::exit;
 use std::time::Instant;
 
-use glfw::{Action, Key, MouseButton, WindowEvent};
-use itertools::Itertools;
+use glfw::{Action, MouseButton};
+use nalgebra::Vector3;
 use nalgebra_glm::{IVec3, vec3};
-use num_traits::Zero;
-use specs::{Entities, Join, Read, ReadStorage, System, Write, WriteStorage};
+use specs::{Join, Read, ReadStorage, System, Write, WriteStorage};
 
 use crate::aabb::{AABB, get_block_aabb};
 use crate::chunk::BlockID;
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{FLYING_TRIGGER_INTERVAL, FOV, GRAVITY, JUMP_IMPULSE, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, REACH_DISTANCE, SPRINTING_TRIGGER_INTERVAL};
-use crate::ecs::components::MainHandItemChanged;
+use crate::constants::{FAR_PLANE, FLYING_TRIGGER_INTERVAL, FOV, JUMP_IMPULSE, NEAR_PLANE, PLAYER_EYES_HEIGHT, REACH_DISTANCE, SPRINTING_TRIGGER_INTERVAL, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::input::InputCache;
 use crate::inventory::Inventory;
 use crate::particle_system::ParticleSystem;
@@ -29,10 +24,6 @@ pub struct HandlePlayerInput;
 impl<'a> System<'a> for HandlePlayerInput {
     type SystemData = (
         Read<'a, InputCache>,
-        Read<'a, TexturePack>,
-        ReadStorage<'a, Inventory>,
-        Write<'a, ParticleSystems>,
-        Write<'a, ChunkManager>,
         WriteStorage<'a, PlayerState>,
         WriteStorage<'a, Interpolator<PlayerPhysicsState>>,
     );
@@ -40,20 +31,14 @@ impl<'a> System<'a> for HandlePlayerInput {
     fn run(&mut self, data: Self::SystemData) {
         let (
             input_cache,
-            texture_pack,
-            inventory,
-            mut particle_systems,
-            mut chunk_manager,
             mut player_state,
             mut player_physics_state,
         ) = data;
 
-        use specs::Join;
-
-        for (player_state, player_physics_state, inventory) in (&mut player_state, &mut player_physics_state, &inventory).join() {
+        for (player_state, player_physics_state) in (&mut player_state, &mut player_physics_state).join() {
             let mut player_state = player_state as &mut PlayerState;
-            let mut player_physics_state = player_physics_state as &mut Interpolator<PlayerPhysicsState>;
-            let mut player_physics_state = player_physics_state.get_latest_state_mut();
+            let player_physics_state = player_physics_state as &mut Interpolator<PlayerPhysicsState>;
+            let player_physics_state = player_physics_state.get_latest_state_mut();
 
             for event in &input_cache.events {
                 match &event {
@@ -81,10 +66,17 @@ impl<'a> System<'a> for HandlePlayerInput {
                         }
                     }
 
+                    // Cancel sneaking
                     glfw::WindowEvent::Key(glfw::Key::LeftShift, _, glfw::Action::Release, _) => {
                         player_state.is_sneaking = false;
                     }
 
+                    // Cancel sprinting
+                    glfw::WindowEvent::Key(glfw::Key::W, _, glfw::Action::Release, _) => {
+                        player_state.is_sprinting = false;
+                    }
+
+                    // Sprint on double press
                     glfw::WindowEvent::Key(glfw::Key::W, _, glfw::Action::Press, _) => {
                         if player_state.sprint_throttle {
                             player_state.sprint_throttle = false;
@@ -94,8 +86,22 @@ impl<'a> System<'a> for HandlePlayerInput {
                         }
                         player_state.sprint_last_toggled = Instant::now();
                     }
+
                     _ => {}
                 }
+            }
+
+            // Sneaking
+            if input_cache.is_key_pressed(glfw::Key::LeftShift) && player_state.is_on_ground {
+                player_state.is_sneaking = true;
+                player_state.is_sprinting = false;
+            }
+
+            // Sprinting
+            if input_cache.is_key_pressed(glfw::Key::LeftControl)
+                && input_cache.is_key_pressed(glfw::Key::W)
+                && !player_state.is_sneaking {
+                player_state.is_sprinting = true;
             }
         }
     }
@@ -106,8 +112,7 @@ pub struct UpdatePlayerState;
 impl<'a> System<'a> for UpdatePlayerState {
     type SystemData = (
         Read<'a, Timer>,
-        Read<'a, InputCache>,
-        Write<'a, ChunkManager>,
+        Read<'a, ChunkManager>,
         WriteStorage<'a, PlayerState>,
         ReadStorage<'a, Interpolator<PlayerPhysicsState>>,
     );
@@ -115,35 +120,15 @@ impl<'a> System<'a> for UpdatePlayerState {
     fn run(&mut self, data: Self::SystemData) {
         let (
             global_timer,
-            input_cache,
-            mut chunk_manager,
+            chunk_manager,
             mut player_state,
-            mut player_physics_state,
+            player_physics_state,
         ) = data;
-
-        use specs::Join;
 
         for (player_state, player_physics_state) in (&mut player_state, &player_physics_state).join() {
             let mut player_state = player_state as &mut PlayerState;
             let player_physics_state = player_physics_state as &Interpolator<PlayerPhysicsState>;
             let t = global_timer.time();
-
-            // Movement
-            if input_cache.is_key_pressed(glfw::Key::LeftShift) && player_state.is_on_ground {
-                player_state.is_sneaking = true;
-                player_state.is_sprinting = false;
-            }
-
-            if input_cache.is_key_pressed(glfw::Key::LeftControl)
-                && input_cache.is_key_pressed(glfw::Key::W)
-                && !player_state.is_sneaking {
-                player_state.is_sprinting = true;
-            }
-
-            if player_state.is_sprinting &&
-                !input_cache.is_key_pressed(glfw::Key::W) {
-                player_state.is_sprinting = false;
-            }
 
             // Camera height
             let target_camera_height = if player_state.is_sneaking {
@@ -182,6 +167,19 @@ impl<'a> System<'a> for UpdatePlayerState {
                     &(player.position + vec3(0., *player_state.camera_height.get_interpolated_state(), 0.)),
                     &fw.normalize(),
                     REACH_DISTANCE)
+            };
+
+            // View and projection matrix
+            player_state.view_matrix = {
+                let player_physics_state = player_physics_state.get_interpolated_state();
+                let camera_position = player_physics_state.position + vec3(0., *player_state.camera_height.get_interpolated_state(), 0.);
+                let looking_dir = player_state.rotation.forward();
+                nalgebra_glm::look_at(&camera_position, &(camera_position + looking_dir), &Vector3::y())
+            };
+
+            player_state.projection_matrix = {
+                let fov = *player_state.fov.get_interpolated_state();
+                nalgebra_glm::perspective(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, fov, NEAR_PLANE, FAR_PLANE)
             };
         }
     }
@@ -231,7 +229,7 @@ impl<'a> System<'a> for PlaceAndBreakBlocks {
                                 if let &Some(((x, y, z), normal)) = &player_state.targeted_block {
                                     place_block((x, y, z), &normal, &player_physics_state.aabb, &inventory, &mut chunk_manager);
                                 }
-                            },
+                            }
                             _ => {}
                         }
                     }

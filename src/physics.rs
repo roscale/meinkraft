@@ -1,14 +1,6 @@
 use std::time;
 
-use nalgebra_glm::vec3;
-
-use crate::PLAYER_HALF_WIDTH;
-use crate::chunk_manager::ChunkManager;
-use crate::constants::GRAVITY;
-use crate::input::InputCache;
-use crate::player::{PlayerPhysicsState, PlayerState};
 use std::time::Instant;
-use num_traits::Zero;
 
 /// Fixed timestep physics simulation using the following method:
 /// https://gafferongames.com/post/fix_your_timestep/

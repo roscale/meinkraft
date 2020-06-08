@@ -1,12 +1,14 @@
+use std::os::raw::c_void;
+use std::ptr::null;
+
+use nalgebra::Matrix4;
+use nalgebra_glm::{Mat4, pi, vec3};
+
 use crate::chunk::BlockID;
+use crate::constants::{GUI_SCALING, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::shader_compilation::ShaderProgram;
 use crate::shapes::centered_unit_cube;
 use crate::types::TexturePack;
-use std::os::raw::c_void;
-use nalgebra_glm::{Mat4, vec3, pi};
-use crate::constants::{WINDOW_WIDTH, WINDOW_HEIGHT, GUI_SCALING};
-use crate::shader_compilation::ShaderProgram;
-use nalgebra::Matrix4;
-use std::ptr::null;
 
 #[derive(Copy, Clone)]
 pub struct ItemStack {
@@ -20,7 +22,7 @@ impl ItemStack {
         ItemStack {
             item: block,
             amount,
-            item_render: ItemRender::new(block)
+            item_render: ItemRender::new()
         }
     }
 
@@ -39,7 +41,7 @@ pub struct ItemRender {
 }
 
 impl ItemRender {
-    pub fn new(block: BlockID) -> Self {
+    pub fn new() -> Self {
         let mut vao = 0;
         gl_call!(gl::CreateVertexArrays(1, &mut vao));
 

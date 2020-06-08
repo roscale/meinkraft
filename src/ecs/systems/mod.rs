@@ -1,11 +1,12 @@
 use specs::{System, Write};
 
-pub use input::*;
-pub use physics::*;
-pub use player::*;
 pub use fps_counter::*;
 pub use hand::*;
+pub use input::*;
 pub use inventory::*;
+pub use physics::*;
+pub use player::*;
+pub use rendering::*;
 
 use crate::timer::Timer;
 
@@ -15,6 +16,7 @@ pub mod player;
 pub mod fps_counter;
 pub mod hand;
 pub mod inventory;
+pub mod rendering;
 
 pub struct AdvanceGlobalTime;
 

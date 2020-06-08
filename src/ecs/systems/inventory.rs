@@ -1,12 +1,12 @@
-use specs::{System, WriteStorage, ReadStorage, Join, Entities, Storage, Read, Entity};
-use crate::main_hand::MainHand;
+use glfw::{MouseButton, WindowEvent};
+use specs::{Entities, Join, Read, ReadStorage, System, WriteStorage};
+
+use crate::chunk_manager::ChunkManager;
 use crate::ecs::components::MainHandItemChanged;
-use crate::player::PlayerState;
 use crate::input::InputCache;
 use crate::inventory::Inventory;
-use glfw::{WindowEvent, MouseButton};
-use crate::chunk_manager::ChunkManager;
 use crate::inventory::item::ItemStack;
+use crate::player::PlayerState;
 
 pub struct InventoryHandleInput;
 
@@ -41,7 +41,9 @@ impl<'a> System<'a> for InventoryHandleInput {
 
         for (e, inventory, player_state) in (&entities, &mut inventory, &player_state).join() {
             let mut f = || {
-                main_hand_item_changed.insert(e, MainHandItemChanged);
+                if let Err(e) = main_hand_item_changed.insert(e, MainHandItemChanged) {
+                    error!("{}", e);
+                }
             };
 
             for event in &input_cache.events {

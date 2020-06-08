@@ -1,14 +1,13 @@
 use std::time::Instant;
 
 use nalgebra::{clamp, Vector3};
-use nalgebra_glm::{IVec3, pi, vec2, Vec3, vec3};
+use nalgebra_glm::{IVec3, Mat4, pi, vec2, Vec3, vec3};
 use num_traits::Zero;
 
 use crate::aabb::{AABB, get_block_aabb};
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{FLYING_SPEED, FLYING_SPRINTING_SPEED, FLYING_TRIGGER_INTERVAL, FOV, HORIZONTAL_ACCELERATION, IN_AIR_FRICTION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, ON_GROUND_FRICTION, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, SNEAKING_SPEED, SPRINTING_SPEED, SPRINTING_TRIGGER_INTERVAL, WALKING_SPEED};
+use crate::constants::{FLYING_SPEED, FLYING_SPRINTING_SPEED, FOV, HORIZONTAL_ACCELERATION, IN_AIR_FRICTION, JUMP_IMPULSE, MAX_VERTICAL_VELOCITY, MOUSE_SENSITIVITY_X, MOUSE_SENSITIVITY_Y, ON_GROUND_FRICTION, PLAYER_EYES_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, PLAYER_WIDTH, SNEAKING_SPEED, SPRINTING_SPEED, WALKING_SPEED};
 use crate::input::InputCache;
-use crate::inventory::Inventory;
 use crate::physics::{Interpolatable, Interpolator};
 use crate::util::Forward;
 
@@ -16,6 +15,8 @@ pub struct PlayerState {
     pub rotation: Vec3,
     pub camera_height: Interpolator<f32>,
     pub fov: Interpolator<f32>,
+    pub view_matrix: Mat4,
+    pub projection_matrix: Mat4,
 
     pub is_on_ground: bool,
     pub is_sneaking: bool,
@@ -38,6 +39,8 @@ impl PlayerState {
             rotation: vec3(0.0, 0.0, 0.0), // In radians
             camera_height: Interpolator::new(1. / 30., PLAYER_EYES_HEIGHT),
             fov: Interpolator::new(1.0 / 30.0, FOV),
+            view_matrix: Mat4::identity(),
+            projection_matrix: Mat4::identity(),
 
             is_on_ground: false,
             is_sneaking: false,
