@@ -87,6 +87,58 @@ fn create_vao_vbo() -> (u32, u32) {
     (vao, vbo)
 }
 
+pub struct ChunkColumn {
+    pub chunks: [Chunk; 16],
+}
+
+impl ChunkColumn {
+    pub fn new() -> Self {
+        Self {
+            chunks: [
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+            ],
+        }
+    }
+
+    pub fn random() -> Self {
+        Self {
+            chunks: [
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+            ],
+        }
+    }
+}
+
 pub struct Chunk {
     blocks: [BlockID; CHUNK_VOLUME as usize],
     pub vao: u32,
@@ -96,6 +148,12 @@ pub struct Chunk {
     pub dirty: bool,
     // Changes to the outer blocks of the chunk lead to dirty nearby chunks
     pub dirty_neighbours: HashSet<(i32, i32, i32)>,
+}
+
+impl Default for Chunk {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl Chunk {

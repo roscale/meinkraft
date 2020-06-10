@@ -8,7 +8,7 @@ use noise::{NoiseFn, Point2, SuperSimplex};
 use rand::random;
 
 use crate::ambient_occlusion::compute_ao_of_block;
-use crate::chunk::{BlockID, BlockIterator, Chunk};
+use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
@@ -19,7 +19,7 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 #[derive(Default)]
 pub struct ChunkManager {
-    loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
+    loaded_chunks: HashMap<(i32, i32), ChunkColumn>,
 }
 
 impl ChunkManager {
@@ -29,15 +29,27 @@ impl ChunkManager {
         }
     }
 
+    pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
+        if y < 0 || y >= 16 {
+            return None;
+        }
+        self.loaded_chunks.get(&(x, z)).and_then(|col| Some(&col.chunks[y as usize]))
+    }
+
+    pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Chunk> {
+        if y < 0 || y >= 16 {
+            return None;
+        }
+        self.loaded_chunks.get_mut(&(x, z)).and_then(|col| Some(&mut col.chunks[y as usize]))
+    }
+
     pub fn generate_terrain(&mut self) {
         let render_distance = 5;
 
         let ss = SuperSimplex::new();
-        for y in 0..16 {
-            for z in -render_distance..=render_distance {
-                for x in -render_distance..=render_distance {
-                    self.loaded_chunks.insert((x, y, z), Chunk::empty());
-                }
+        for z in -render_distance..=render_distance {
+            for x in -render_distance..=render_distance {
+                self.loaded_chunks.insert((x, z), ChunkColumn::new());
             }
         }
 
@@ -90,17 +102,15 @@ impl ChunkManager {
     }
 
     pub fn preload_some_chunks(&mut self) {
-        for y in 0..2 {
-            for z in 0..2 {
-                for x in 0..2 {
-                    self.loaded_chunks.insert((x, y, z), Chunk::random());
-                }
+        for z in 0..2 {
+            for x in 0..2 {
+                self.loaded_chunks.insert((x, z), ChunkColumn::random());
             }
         }
     }
 
     pub fn single(&mut self) {
-        self.loaded_chunks.insert((0, 0, 0), Chunk::empty());
+        self.loaded_chunks.insert((0, 0), ChunkColumn::new());
         self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
@@ -129,18 +139,20 @@ impl ChunkManager {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
 
-        self.loaded_chunks.get((chunk_x, chunk_y, chunk_z).borrow()).and_then(|chunk| {
-            Some(chunk.get_block(block_x, block_y, block_z))
-        })
+        match self.get_chunk(chunk_x, chunk_y, chunk_z) {
+            None => None,
+            Some(chunk) => Some(chunk.get_block(block_x, block_y, block_z)),
+        }
     }
 
     pub fn set_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
 
-        self.loaded_chunks.get_mut((chunk_x, chunk_y, chunk_z).borrow()).map(|chunk| {
-            chunk.set_block(block, block_x, block_y, block_z)
-        });
+        match self.get_chunk_mut(chunk_x, chunk_y, chunk_z) {
+            None => None,
+            Some(chunk) => Some(chunk.set_block(block, block_x, block_y, block_z)),
+        };
     }
 
     pub fn is_solid_block_at(&self, x: i32, y: i32, z: i32) -> bool {
@@ -156,12 +168,14 @@ impl ChunkManager {
         // Collect all the dirty chunks
         // Nearby chunks can be also dirty if the change happens at the edge
         let mut dirty_chunks: HashSet<(i32, i32, i32)> = HashSet::new();
-        for (&(x, y, z), chunk) in &self.loaded_chunks {
-            if chunk.dirty {
-                dirty_chunks.insert((x, y, z));
-            }
-            for &(rx, ry, rz) in &chunk.dirty_neighbours {
-                dirty_chunks.insert((x + rx, y + ry, z + rz));
+        for (&(x, z), chunk_column) in &self.loaded_chunks {
+            for (y, chunk) in chunk_column.chunks.iter().enumerate() {
+                if chunk.dirty {
+                    dirty_chunks.insert((x, y as i32, z));
+                }
+                for &(rx, ry, rz) in &chunk.dirty_neighbours {
+                    dirty_chunks.insert((x + rx, y as i32 + ry, z + rz));
+                }
             }
         }
         if dirty_chunks.is_empty() {
@@ -183,7 +197,8 @@ impl ChunkManager {
 
         for &coords in &dirty_chunks {
             let (c_x, c_y, c_z) = coords;
-            let chunk = self.loaded_chunks.get(&coords);
+
+            let chunk = self.get_chunk(coords.0, coords.1, coords.2);
             if let Some(chunk) = chunk {
                 let active_faces_vec = active_faces.entry(coords).or_default();
                 let ao_chunk = ao_chunks.entry(coords).or_default();
@@ -202,7 +217,7 @@ impl ChunkManager {
                         // can skip the chunk manager and iterate through the blocks
                         // of the same chunk
                         if b_x > 0 && b_x < 15 && b_y > 0 && b_y < 15 && b_z > 0 && b_z < 15 {
-                            let chunk = self.loaded_chunks.get(&(c_x, c_y, c_z)).unwrap();
+                            let chunk = &self.loaded_chunks.get(&(c_x, c_z)).unwrap().chunks[c_y as usize];
                             let does_occlude = |x: i32, y: i32, z: i32| {
                                 !chunk.get_block((b_x as i32 + x) as u32, (b_y as i32 + y) as u32, (b_z as i32 + z) as u32).is_transparent_no_leaves()
                             };
@@ -223,7 +238,7 @@ impl ChunkManager {
 
         // Update the VBOs of the dirty chunks
         for chunk_coords in &dirty_chunks {
-            let chunk = self.loaded_chunks.get_mut(&chunk_coords);
+            let chunk = self.get_chunk_mut(chunk_coords.0, chunk_coords.1, chunk_coords.2);
             // We check for a valid chunk because maybe the calculated neighbour chunk does not exist
             if let Some(chunk) = chunk {
                 chunk.dirty = false;
@@ -288,26 +303,28 @@ impl ChunkManager {
     }
 
     pub fn render_loaded_chunks(&self, program: &mut ShaderProgram) {
-        for ((x, y, z), chunk) in &self.loaded_chunks {
-            // Skip rendering the chunk if there is nothing to draw
-            if chunk.vertices_drawn == 0 {
-                continue;
-            }
-            let model_matrix = {
-                let translate_matrix = Matrix4::new_translation(&vec3(
-                    *x as f32, *y as f32, *z as f32).scale(16.0));
-                let rotate_matrix = Matrix4::from_euler_angles(
-                    0.0f32,
-                    0.0,
-                    0.0,
-                );
-                let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
-                translate_matrix * rotate_matrix * scale_matrix
-            };
+        for ((x, z), chunk_column) in &self.loaded_chunks {
+            for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
+                // Skip rendering the chunk if there is nothing to draw
+                if chunk.vertices_drawn == 0 {
+                    continue;
+                }
+                let model_matrix = {
+                    let translate_matrix = Matrix4::new_translation(&vec3(
+                        *x as f32, *y as f32, *z as f32).scale(16.0));
+                    let rotate_matrix = Matrix4::from_euler_angles(
+                        0.0f32,
+                        0.0,
+                        0.0,
+                    );
+                    let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
+                    translate_matrix * rotate_matrix * scale_matrix
+                };
 
-            gl_call!(gl::BindVertexArray(chunk.vao));
-            program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
+                gl_call!(gl::BindVertexArray(chunk.vao));
+                program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+                gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
+            }
         }
     }
 }
