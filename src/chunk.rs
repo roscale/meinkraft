@@ -137,6 +137,29 @@ impl ChunkColumn {
             ],
         }
     }
+
+    pub fn alternating() -> Self {
+        Self {
+            chunks: [
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+            ],
+        }
+    }
 }
 
 pub struct Chunk {

@@ -12,6 +12,7 @@ use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
+use std::time::{Instant, Duration};
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -114,6 +115,10 @@ impl ChunkManager {
         self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
+    pub fn single_column(&mut self) {
+        self.loaded_chunks.insert((0, 0), ChunkColumn::alternating());
+    }
+
     // Transform global block coordinates into chunk local coordinates
     fn get_chunk_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
         let chunk_x = if x < 0 { (x + 1) / 16 - 1 } else { x / 16 };
@@ -200,16 +205,24 @@ impl ChunkManager {
 
             let chunk = self.get_chunk(coords.0, coords.1, coords.2);
             if let Some(chunk) = chunk {
+                let now = Instant::now();
+                let mut active_faces_duration = Duration::default();
+                let mut interior_ao_duration = Duration::default();
+                let mut exterior_ao_duration = Duration::default();
+
                 let active_faces_vec = active_faces.entry(coords).or_default();
                 let ao_chunk = ao_chunks.entry(coords).or_default();
 
                 for (b_x, b_y, b_z) in BlockIterator::new() {
                     let block = chunk.get_block(b_x, b_y, b_z);
                     if !block.is_air() {
+                        let now = Instant::now();
+
                         let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
                         let active_faces_of_block = self.get_active_faces_of_block(g_x, g_y, g_z);
                         active_faces_vec.push(active_faces_of_block);
 
+                        active_faces_duration += Instant::now().duration_since(now);
                         // Ambient Occlusion
                         
                         // Optimisation
@@ -217,22 +230,34 @@ impl ChunkManager {
                         // can skip the chunk manager and iterate through the blocks
                         // of the same chunk
                         if b_x > 0 && b_x < 15 && b_y > 0 && b_y < 15 && b_z > 0 && b_z < 15 {
+                            let now = Instant::now();
+
                             let chunk = &self.loaded_chunks.get(&(c_x, c_z)).unwrap().chunks[c_y as usize];
                             let does_occlude = |x: i32, y: i32, z: i32| {
                                 !chunk.get_block((b_x as i32 + x) as u32, (b_y as i32 + y) as u32, (b_z as i32 + z) as u32).is_transparent_no_leaves()
                             };
                             ao_chunk.push(compute_ao_of_block(&does_occlude));
 
+                            interior_ao_duration += Instant::now().duration_since(now);
                         } else {
+                            let now = Instant::now();
+
                             let does_occlude = |x: i32, y: i32, z: i32| {
                                 self.get_block(g_x + x, g_y + y, g_z + z)
                                     .filter(|&b| !b.is_transparent_no_leaves())
                                     .is_some()
                             };
                             ao_chunk.push(compute_ao_of_block(&does_occlude));
+
+                            exterior_ao_duration += Instant::now().duration_since(now);
                         };
                     }
                 }
+
+                println!("Time chunk {:#?}", Instant::now().duration_since(now));
+                println!("Active faces {:#?}", active_faces_duration);
+                println!("Interior AO {:#?}", interior_ao_duration);
+                println!("Exterior AO {:#?}", exterior_ao_duration);
             }
         }
 
