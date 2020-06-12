@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
 use std::ptr::null;
 
@@ -12,6 +12,8 @@ use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
+use num_traits::Zero;
+use std::time::{Instant, Duration};
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -20,12 +22,16 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 #[derive(Default)]
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32), ChunkColumn>,
+    ss: SuperSimplex,
+    i: i32,
 }
 
 impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
-            loaded_chunks: HashMap::new()
+            loaded_chunks: HashMap::new(),
+            ss: SuperSimplex::new(),
+            i: 0,
         }
     }
 
@@ -41,6 +47,23 @@ impl ChunkManager {
             return None;
         }
         self.loaded_chunks.get_mut(&(x, z)).and_then(|col| Some(&mut col.chunks[y as usize]))
+    }
+
+    pub fn generate_progressive_terrain(&mut self) {
+        if self.i != 0 {
+            return;
+        }
+        for i in 0..=5 {
+            for j in 0..=i {
+                let column = ChunkColumn::random();
+                // column.chunks
+                //
+                println!("da");
+                self.loaded_chunks.insert((j, i - j), column);
+            }
+        }
+
+        self.i += 1;
     }
 
     pub fn generate_terrain(&mut self) {
@@ -114,7 +137,12 @@ impl ChunkManager {
         self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
+    pub fn single_column(&mut self) {
+        self.loaded_chunks.insert((0, 0), ChunkColumn::full_of_block());
+    }
+
     // Transform global block coordinates into chunk local coordinates
+    #[inline]
     fn get_chunk_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
         let chunk_x = if x < 0 { (x + 1) / 16 - 1 } else { x / 16 };
         let chunk_y = if y < 0 { (y + 1) / 16 - 1 } else { y / 16 };
@@ -203,36 +231,137 @@ impl ChunkManager {
                 let active_faces_vec = active_faces.entry(coords).or_default();
                 let ao_chunk = ao_chunks.entry(coords).or_default();
 
+                let mut neighbours: [Option<Option<&Chunk>>; 27] = [None; 27];
+
+                let to_array_coords = |x: i32, y: i32, z: i32| {
+                    let x = x + 1;
+                    let y = y + 1;
+                    let z = z + 1;
+                    assert!(x >= 0);
+                    assert!(y >= 0);
+                    assert!(z >= 0);
+                    (x * 9 + y * 3 + z) as usize
+                };
+
+                let now = Instant::now();
+
+                let mut active_faces_duration = Duration::default();
+                let mut edge_ao = Duration::default();
+                let mut internal_ao = Duration::default();
+
                 for (b_x, b_y, b_z) in BlockIterator::new() {
                     let block = chunk.get_block(b_x, b_y, b_z);
                     if !block.is_air() {
                         let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+
+                        let now = Instant::now();
                         let active_faces_of_block = self.get_active_faces_of_block(g_x, g_y, g_z);
+                        active_faces_duration += Instant::now().duration_since(now);
+
+                        // let active_faces_of_block = [true, false, true, false, false, false];
                         active_faces_vec.push(active_faces_of_block);
 
                         // Ambient Occlusion
-                        
+
                         // Optimisation
                         // If the block is not at the edge of the chunk then we
                         // can skip the chunk manager and iterate through the blocks
                         // of the same chunk
                         if b_x > 0 && b_x < 15 && b_y > 0 && b_y < 15 && b_z > 0 && b_z < 15 {
+                            let now = Instant::now();
+
                             let chunk = &self.loaded_chunks.get(&(c_x, c_z)).unwrap().chunks[c_y as usize];
-                            let does_occlude = |x: i32, y: i32, z: i32| {
+                            let mut does_occlude = |x: i32, y: i32, z: i32| {
                                 !chunk.get_block((b_x as i32 + x) as u32, (b_y as i32 + y) as u32, (b_z as i32 + z) as u32).is_transparent_no_leaves()
                             };
-                            ao_chunk.push(compute_ao_of_block(&does_occlude));
+                            ao_chunk.push(compute_ao_of_block(&mut does_occlude));
 
+                            internal_ao += Instant::now().duration_since(now);
                         } else {
-                            let does_occlude = |x: i32, y: i32, z: i32| {
-                                self.get_block(g_x + x, g_y + y, g_z + z)
-                                    .filter(|&b| !b.is_transparent_no_leaves())
-                                    .is_some()
+                            let now = Instant::now();
+                            // let mut does_occlude = |x: i32, y: i32, z: i32| {
+                            //     self.get_block(g_x + x, g_y + y, g_z + z)
+                            //         .filter(|b| !b.is_transparent_no_leaves())
+                            //         .is_some()
+                            // };
+
+                            // let mut does_occlude = |x: i32, y: i32, z: i32| false;
+
+                            let mut does_occlude = |x: i32, y: i32, z: i32| {
+                                let (
+                                    c_xx,
+                                    c_yy,
+                                    c_zz,
+                                    b_xx,
+                                    b_yy,
+                                    b_zz,
+                                ) = ChunkManager::get_chunk_coords(g_x + x, g_y + y, g_z + z);
+
+                                let r_xx = c_xx - c_x;
+                                let r_yy = c_yy - c_y;
+                                let r_zz = c_zz - c_z;
+
+                                if r_xx.is_zero() && r_yy.is_zero() && r_zz.is_zero() {
+                                    !chunk.get_block(b_xx as u32, b_yy as u32, b_zz as u32).is_transparent_no_leaves()
+                                } else {
+                                    let mut neighbour = neighbours[to_array_coords(r_xx, r_yy, r_zz)];
+                                    if let None = &neighbour {
+                                        // println!("huh");
+                                        neighbours[to_array_coords(r_xx, r_yy, r_zz)] = Some(self.get_chunk(c_xx, c_yy, c_zz));
+                                    }
+
+                                    if let Some(Some(neighbour)) = neighbour {
+                                        !neighbour.get_block(b_xx, b_yy, b_zz).is_transparent_no_leaves()
+                                    } else {
+                                        false
+                                    }
+                                }
                             };
-                            ao_chunk.push(compute_ao_of_block(&does_occlude));
-                        };
+
+                                // let mut xx = b_x as i32 + x;
+                                // let mut yy = b_y as i32 + y;
+                                // let mut zz = b_z as i32 + z;
+                                //
+                                // if xx < 0 || xx > 15 || yy < 0 || yy > 15 || zz < 0 || zz > 15 {
+                                //     if xx < 0 {
+                                //         xx = -1;
+                                //     } else if xx > 15 {
+                                //         xx = 1;
+                                //     } else {
+                                //         xx = 0;
+                                //     }
+                                //
+                                //     if yy < 0 {
+                                //         yy = -1;
+                                //     } else if yy > 15 {
+                                //         yy = 1;
+                                //     } else {
+                                //         yy = 0;
+                                //     }
+                                //
+                                //     if zz < 0 {
+                                //         zz = -1;
+                                //     } else if zz > 15 {
+                                //         zz = 1;
+                                //     } else {
+                                //         zz = 0;
+                                //     }
+
+                                // self.get_block(g_x + x, g_y + y, g_z + z)
+                                //     .filter(|&b| !b.is_transparent_no_leaves())
+                                //     .is_some()
+                            // };
+                            ao_chunk.push(compute_ao_of_block(&mut does_occlude));
+
+                            edge_ao += Instant::now().duration_since(now);
+                        }
                     }
                 }
+
+                println!("TIME {:#?}", Instant::now().duration_since(now));
+                println!("TIME ACTIVE FACES {:#?}", active_faces_duration);
+                println!("TIME INTERN AO {:#?}", internal_ao);
+                println!("TIME EDGE AO {:#?}", edge_ao);
             }
         }
 

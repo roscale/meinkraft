@@ -31,3 +31,4 @@ lazy_static = "1.4.0"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"
 specs = { version = "0.16.1", features = ["specs-derive"] }
+bit-vec = "0.6.2"

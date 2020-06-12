@@ -3,6 +3,7 @@ use rand::{random, Rng};
 use rand::prelude::Distribution;
 use rand::distributions::Standard;
 use crate::chunk_manager::{CHUNK_VOLUME, CHUNK_SIZE};
+use bit_vec::BitVec;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {
@@ -137,10 +138,35 @@ impl ChunkColumn {
             ],
         }
     }
+
+    pub fn full_of_block() -> Self {
+        Self {
+            chunks: [
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+            ],
+        }
+    }
 }
 
 pub struct Chunk {
     blocks: [BlockID; CHUNK_VOLUME as usize],
+    visible_block_faces: BitVec,
+
     pub vao: u32,
     pub vbo: u32,
     pub vertices_drawn: u32,
@@ -175,6 +201,7 @@ impl Chunk {
 
         Chunk {
             blocks: [BlockID::Air; CHUNK_VOLUME as usize],
+            visible_block_faces: BitVec::from_elem(6 * 16 * 16 * 16, false),
             vao,
             vbo,
             vertices_drawn: 0,
@@ -189,6 +216,7 @@ impl Chunk {
 
         Chunk {
             blocks: [block; CHUNK_VOLUME as usize],
+            visible_block_faces: BitVec::from_elem(6 * 16 * 16 * 16, false),
             vao,
             vbo,
             vertices_drawn: 0,
@@ -209,6 +237,7 @@ impl Chunk {
                 }
                 blocks
             },
+            visible_block_faces: BitVec::from_elem(6 * 16 * 16 * 16, false),
             vao,
             vbo,
             vertices_drawn: 0,

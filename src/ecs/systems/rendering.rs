@@ -44,6 +44,7 @@ impl<'a> System<'a> for RenderChunks {
             voxel_shader.set_uniform_matrix4fv("projection", player_state.projection_matrix.as_ptr());
             chunk_manager.render_loaded_chunks(&mut voxel_shader);
         }
+        // chunk_manager.generate_progressive_terrain();
     }
 }
 

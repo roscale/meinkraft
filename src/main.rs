@@ -115,7 +115,7 @@ fn main() {
     });
     world.insert({
         let mut chunk_manager = ChunkManager::new();
-        chunk_manager.generate_terrain();
+        chunk_manager.single_column();
         chunk_manager
     });
     world.insert({
