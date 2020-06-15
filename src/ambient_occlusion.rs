@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-pub fn compute_ao_of_block(does_occlude: &mut dyn FnMut(i32, i32, i32) -> bool) -> [[u8; 4]; 6] {
+pub fn compute_ao_of_block(does_occlude: &dyn Fn(i32, i32, i32) -> bool) -> [[u8; 4]; 6] {
     let mut ao_block = [[0; 4]; 6];
     for x in -1..=1 {
         for y in -1..=1 {

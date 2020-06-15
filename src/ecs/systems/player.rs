@@ -259,7 +259,7 @@ impl<'a> System<'a> for PlaceAndBreakBlocks {
 
 fn break_block((x, y, z): (i32, i32, i32), chunk_manager: &mut ChunkManager, particle_system: &mut ParticleSystem, uv_map: &TexturePack) {
     let block = chunk_manager.get_block(x, y, z).unwrap();
-    chunk_manager.set_block(BlockID::Air, x, y, z);
+    chunk_manager.put_block(BlockID::Air, x, y, z);
     particle_system.spawn_block_breaking_particles(vec3(x as f32, y as f32, z as f32), &uv_map, block);
     info!("Destroyed block at ({} {} {})", x, y, z);
 }
@@ -272,7 +272,7 @@ fn place_block((x, y, z): (i32, i32, i32), normal: &IVec3, player_aabb: &AABB, i
         adjacent_block.z as f32));
     if !player_aabb.intersects(&adjacent_block_aabb) {
         if let Some(block) = inventory.get_selected_item() {
-            chunk_manager.set_block(block, adjacent_block.x, adjacent_block.y, adjacent_block.z);
+            chunk_manager.put_block(block, adjacent_block.x, adjacent_block.y, adjacent_block.z);
         }
         info!("Put block at ({} {} {})", adjacent_block.x, adjacent_block.y, adjacent_block.z);
     }

@@ -67,10 +67,6 @@ impl PlayerState {
             -pi::<f32>() / 2.0 + 0.0001,
             pi::<f32>() / 2.0 - 0.0001);
     }
-
-    // pub fn on_update(&mut self, t: Instant, input_cache: &InputCache, player_physics_state: &PlayerPhysicsState) {
-    //
-    // }
 }
 
 #[derive(Clone)]

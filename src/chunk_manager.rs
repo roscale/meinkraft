@@ -1,4 +1,3 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
 use std::ptr::null;
 
@@ -12,8 +11,6 @@ use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
-use num_traits::Zero;
-use std::time::{Instant, Duration};
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -22,16 +19,16 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 #[derive(Default)]
 pub struct ChunkManager {
     loaded_chunks: HashMap<(i32, i32), ChunkColumn>,
-    ss: SuperSimplex,
-    i: i32,
+    fresh_chunk_columns: HashSet<(i32, i32)>,
+    pub block_changelist: HashSet<(i32, i32, i32)>,
 }
 
 impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
             loaded_chunks: HashMap::new(),
-            ss: SuperSimplex::new(),
-            i: 0,
+            fresh_chunk_columns: HashSet::new(),
+            block_changelist: HashSet::new(),
         }
     }
 
@@ -49,21 +46,9 @@ impl ChunkManager {
         self.loaded_chunks.get_mut(&(x, z)).and_then(|col| Some(&mut col.chunks[y as usize]))
     }
 
-    pub fn generate_progressive_terrain(&mut self) {
-        if self.i != 0 {
-            return;
-        }
-        for i in 0..=5 {
-            for j in 0..=i {
-                let column = ChunkColumn::random();
-                // column.chunks
-                //
-                println!("da");
-                self.loaded_chunks.insert((j, i - j), column);
-            }
-        }
-
-        self.i += 1;
+    pub fn add_chunk_column(&mut self, xz: (i32, i32), chunk_column: ChunkColumn) {
+        self.loaded_chunks.insert(xz, chunk_column);
+        self.fresh_chunk_columns.insert(xz);
     }
 
     pub fn generate_terrain(&mut self) {
@@ -72,7 +57,7 @@ impl ChunkManager {
         let ss = SuperSimplex::new();
         for z in -render_distance..=render_distance {
             for x in -render_distance..=render_distance {
-                self.loaded_chunks.insert((x, z), ChunkColumn::new());
+                self.add_chunk_column((x, z), ChunkColumn::new());
             }
         }
 
@@ -127,22 +112,21 @@ impl ChunkManager {
     pub fn preload_some_chunks(&mut self) {
         for z in 0..2 {
             for x in 0..2 {
-                self.loaded_chunks.insert((x, z), ChunkColumn::random());
+                self.add_chunk_column((x, z), ChunkColumn::random());
             }
         }
     }
 
     pub fn single(&mut self) {
-        self.loaded_chunks.insert((0, 0), ChunkColumn::new());
+        self.add_chunk_column((0, 0), ChunkColumn::new());
         self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
     pub fn single_column(&mut self) {
-        self.loaded_chunks.insert((0, 0), ChunkColumn::full_of_block());
+        self.add_chunk_column((0, 0), ChunkColumn::alternating());
     }
 
     // Transform global block coordinates into chunk local coordinates
-    #[inline]
     fn get_chunk_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
         let chunk_x = if x < 0 { (x + 1) / 16 - 1 } else { x / 16 };
         let chunk_y = if y < 0 { (y + 1) / 16 - 1 } else { y / 16 };
@@ -156,7 +140,7 @@ impl ChunkManager {
     }
 
     // Transform chunk local coordinates into global coordinates
-    fn get_global_coords((chunk_x, chunk_y, chunk_z, block_x, block_y, block_z): (i32, i32, i32, u32, u32, u32)) -> (i32, i32, i32) {
+    pub fn get_global_coords((chunk_x, chunk_y, chunk_z, block_x, block_y, block_z): (i32, i32, i32, u32, u32, u32)) -> (i32, i32, i32) {
         let x = 16 * chunk_x + block_x as i32;
         let y = 16 * chunk_y + block_y as i32;
         let z = 16 * chunk_z + block_z as i32;
@@ -173,14 +157,30 @@ impl ChunkManager {
         }
     }
 
-    pub fn set_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) {
+    /// Replaces the block at (x, y, z) with `block`.
+    ///
+    /// This function should be used for terrain generation because it does not
+    /// modify the changelist.
+    pub fn set_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
 
         match self.get_chunk_mut(chunk_x, chunk_y, chunk_z) {
-            None => None,
-            Some(chunk) => Some(chunk.set_block(block, block_x, block_y, block_z)),
-        };
+            Some(chunk) => {
+                chunk.set_block(block, block_x, block_y, block_z);
+                true
+            },
+            None => false,
+        }
+    }
+
+    /// Like `set_block` but it modifies the changelist.
+    ///
+    /// Should be used when an entity (player, mob etc.) interacts with the world.
+    pub fn put_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) {
+        if self.set_block(block, x, y, z) {
+            self.block_changelist.insert((x, y, z));
+        }
     }
 
     pub fn is_solid_block_at(&self, x: i32, y: i32, z: i32) -> bool {
@@ -189,234 +189,121 @@ impl ChunkManager {
             .is_some()
     }
 
-    // uv_map: the UV coordinates of all the block's faces
-    // UV coordinates are composed of 4 floats, the first 2 are the bottom left corner and the last 2 are the top right corner (all between 0.0 and 1.0)
-    // These specify the subtexture to use when rendering
-    pub fn rebuild_dirty_chunks(&mut self, uv_map: &TexturePack) {
-        // Collect all the dirty chunks
-        // Nearby chunks can be also dirty if the change happens at the edge
-        let mut dirty_chunks: HashSet<(i32, i32, i32)> = HashSet::new();
-        for (&(x, z), chunk_column) in &self.loaded_chunks {
-            for (y, chunk) in chunk_column.chunks.iter().enumerate() {
-                if chunk.dirty {
-                    dirty_chunks.insert((x, y as i32, z));
-                }
-                for &(rx, ry, rz) in &chunk.dirty_neighbours {
-                    dirty_chunks.insert((x + rx, y as i32 + ry, z + rz));
-                }
-            }
+    fn update_block(&mut self, c_x: i32, c_y: i32, c_z: i32, b_x: u32, b_y: u32, b_z: u32) {
+        let chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
+        if chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
+            return;
         }
-        if dirty_chunks.is_empty() {
+        let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
+        let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+        let active_faces_of_block = self.get_active_faces_of_block(w_x, w_y, w_z);
+
+        let chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
+        chunk.active_faces.set(6 * array_index, active_faces_of_block[0]);
+        chunk.active_faces.set(6 * array_index + 1, active_faces_of_block[1]);
+        chunk.active_faces.set(6 * array_index + 2, active_faces_of_block[2]);
+        chunk.active_faces.set(6 * array_index + 3, active_faces_of_block[3]);
+        chunk.active_faces.set(6 * array_index + 4, active_faces_of_block[4]);
+        chunk.active_faces.set(6 * array_index + 5, active_faces_of_block[5]);
+
+        // Ambient Occlusion
+
+        let block_ao = compute_ao_of_block(&|rx: i32, ry: i32, rz: i32| {
+            self.get_block(w_x + rx, w_y + ry, w_z + rz)
+                .filter(|b| !b.is_transparent_no_leaves())
+                .is_some()
+        });
+
+        let mut chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
+        chunk.ao_vertices[array_index] = block_ao;
+    }
+
+    fn update_chunk(&mut self, c_x: i32, c_y: i32, c_z: i32, texture_pack: &TexturePack) {
+        let mut chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
+
+        let n_visible_faces = chunk.active_faces.iter().fold(0, |acc, b| acc + b as i32);
+        if n_visible_faces == 0 {
             return;
         }
 
-        /*
-            Optimization:
-                If 2 solid blocks are touching, don't render the faces where they touch.
-                Render only the faces that are next to a transparent block (AIR for example)
-         */
-        type ChunkCoords = (i32, i32, i32);
+        // Initialize the VBO
+        gl_call!(gl::NamedBufferData(chunk.vbo,
+                (6 * 10 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                null(),
+                gl::DYNAMIC_DRAW));
 
-        type Sides = [bool; 6];
-        let mut active_faces: HashMap<ChunkCoords, Vec<Sides>> = HashMap::new();
+        // Map VBO to virtual memory
+        let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(chunk.vbo, gl::WRITE_ONLY)) as *mut f32;
+        let mut vbo_offset = 0;
 
-        type CubeAO = [[u8; 4]; 6];
-        let mut ao_chunks: HashMap<ChunkCoords, Vec<CubeAO>> = HashMap::new();
+        chunk.vertices_drawn = 0;
+        let sides_vec = &chunk.active_faces;
+        let ao_vec = &chunk.ao_vertices;
+        let mut j = 0;
 
-        for &coords in &dirty_chunks {
-            let (c_x, c_y, c_z) = coords;
+        for (x, y, z) in BlockIterator::new() {
+            let block = chunk.get_block(x, y, z);
+            if block != BlockID::Air {
+                let active_sides = [
+                    sides_vec[6 * j],
+                    sides_vec[6 * j + 1],
+                    sides_vec[6 * j + 2],
+                    sides_vec[6 * j + 3],
+                    sides_vec[6 * j + 4],
+                    sides_vec[6 * j + 5],
+                ];
 
-            let chunk = self.get_chunk(coords.0, coords.1, coords.2);
-            if let Some(chunk) = chunk {
-                let active_faces_vec = active_faces.entry(coords).or_default();
-                let ao_chunk = ao_chunks.entry(coords).or_default();
+                let ao_block = ao_vec[j];
 
-                let mut neighbours: [Option<Option<&Chunk>>; 27] = [None; 27];
+                let uvs = texture_pack.get(&block).unwrap().clone();
+                let uvs = uvs.get_uv_of_every_face();
 
-                let to_array_coords = |x: i32, y: i32, z: i32| {
-                    let x = x + 1;
-                    let y = y + 1;
-                    let z = z + 1;
-                    assert!(x >= 0);
-                    assert!(y >= 0);
-                    assert!(z >= 0);
-                    (x * 9 + y * 3 + z) as usize
-                };
+                let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides, ao_block) };
+                // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
+                // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
+                chunk.vertices_drawn += copied_vertices;
+                vbo_offset += copied_vertices as isize * 10; // 5 floats per vertex
+            }
+            j += 1;
+        }
+        gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
+    }
 
-                let now = Instant::now();
-
-                let mut active_faces_duration = Duration::default();
-                let mut edge_ao = Duration::default();
-                let mut internal_ao = Duration::default();
-
-                for (b_x, b_y, b_z) in BlockIterator::new() {
-                    let block = chunk.get_block(b_x, b_y, b_z);
-                    if !block.is_air() {
-                        let (g_x, g_y, g_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-
-                        let now = Instant::now();
-                        let active_faces_of_block = self.get_active_faces_of_block(g_x, g_y, g_z);
-                        active_faces_duration += Instant::now().duration_since(now);
-
-                        // let active_faces_of_block = [true, false, true, false, false, false];
-                        active_faces_vec.push(active_faces_of_block);
-
-                        // Ambient Occlusion
-
-                        // Optimisation
-                        // If the block is not at the edge of the chunk then we
-                        // can skip the chunk manager and iterate through the blocks
-                        // of the same chunk
-                        if b_x > 0 && b_x < 15 && b_y > 0 && b_y < 15 && b_z > 0 && b_z < 15 {
-                            let now = Instant::now();
-
-                            let chunk = &self.loaded_chunks.get(&(c_x, c_z)).unwrap().chunks[c_y as usize];
-                            let mut does_occlude = |x: i32, y: i32, z: i32| {
-                                !chunk.get_block((b_x as i32 + x) as u32, (b_y as i32 + y) as u32, (b_z as i32 + z) as u32).is_transparent_no_leaves()
-                            };
-                            ao_chunk.push(compute_ao_of_block(&mut does_occlude));
-
-                            internal_ao += Instant::now().duration_since(now);
-                        } else {
-                            let now = Instant::now();
-                            // let mut does_occlude = |x: i32, y: i32, z: i32| {
-                            //     self.get_block(g_x + x, g_y + y, g_z + z)
-                            //         .filter(|b| !b.is_transparent_no_leaves())
-                            //         .is_some()
-                            // };
-
-                            // let mut does_occlude = |x: i32, y: i32, z: i32| false;
-
-                            let mut does_occlude = |x: i32, y: i32, z: i32| {
-                                let (
-                                    c_xx,
-                                    c_yy,
-                                    c_zz,
-                                    b_xx,
-                                    b_yy,
-                                    b_zz,
-                                ) = ChunkManager::get_chunk_coords(g_x + x, g_y + y, g_z + z);
-
-                                let r_xx = c_xx - c_x;
-                                let r_yy = c_yy - c_y;
-                                let r_zz = c_zz - c_z;
-
-                                if r_xx.is_zero() && r_yy.is_zero() && r_zz.is_zero() {
-                                    !chunk.get_block(b_xx as u32, b_yy as u32, b_zz as u32).is_transparent_no_leaves()
-                                } else {
-                                    let mut neighbour = neighbours[to_array_coords(r_xx, r_yy, r_zz)];
-                                    if let None = &neighbour {
-                                        // println!("huh");
-                                        neighbours[to_array_coords(r_xx, r_yy, r_zz)] = Some(self.get_chunk(c_xx, c_yy, c_zz));
-                                    }
-
-                                    if let Some(Some(neighbour)) = neighbour {
-                                        !neighbour.get_block(b_xx, b_yy, b_zz).is_transparent_no_leaves()
-                                    } else {
-                                        false
-                                    }
-                                }
-                            };
-
-                                // let mut xx = b_x as i32 + x;
-                                // let mut yy = b_y as i32 + y;
-                                // let mut zz = b_z as i32 + z;
-                                //
-                                // if xx < 0 || xx > 15 || yy < 0 || yy > 15 || zz < 0 || zz > 15 {
-                                //     if xx < 0 {
-                                //         xx = -1;
-                                //     } else if xx > 15 {
-                                //         xx = 1;
-                                //     } else {
-                                //         xx = 0;
-                                //     }
-                                //
-                                //     if yy < 0 {
-                                //         yy = -1;
-                                //     } else if yy > 15 {
-                                //         yy = 1;
-                                //     } else {
-                                //         yy = 0;
-                                //     }
-                                //
-                                //     if zz < 0 {
-                                //         zz = -1;
-                                //     } else if zz > 15 {
-                                //         zz = 1;
-                                //     } else {
-                                //         zz = 0;
-                                //     }
-
-                                // self.get_block(g_x + x, g_y + y, g_z + z)
-                                //     .filter(|&b| !b.is_transparent_no_leaves())
-                                //     .is_some()
-                            // };
-                            ao_chunk.push(compute_ao_of_block(&mut does_occlude));
-
-                            edge_ao += Instant::now().duration_since(now);
-                        }
+    pub fn rebuild_dirty_chunks(&mut self, uv_map: &TexturePack) {
+        let mut changelist_per_chunk: HashMap<(i32, i32, i32), Vec<(u32, u32, u32)>> = HashMap::new();
+        for &change in &self.block_changelist {
+            for x in -1..=1 {
+                for y in -1..=1 {
+                    for z in -1..=1 {
+                        let (
+                            c_x, c_y, c_z,
+                            b_x, b_y, b_z,
+                        ) = ChunkManager::get_chunk_coords(change.0 + x, change.1 + y, change.2 + z);
+                        changelist_per_chunk.entry((c_x, c_y, c_z)).or_default().push((b_x, b_y, b_z));
                     }
                 }
-
-                println!("TIME {:#?}", Instant::now().duration_since(now));
-                println!("TIME ACTIVE FACES {:#?}", active_faces_duration);
-                println!("TIME INTERN AO {:#?}", internal_ao);
-                println!("TIME EDGE AO {:#?}", edge_ao);
             }
         }
+        self.block_changelist.clear();
 
-        // Update the VBOs of the dirty chunks
-        for chunk_coords in &dirty_chunks {
-            let chunk = self.get_chunk_mut(chunk_coords.0, chunk_coords.1, chunk_coords.2);
-            // We check for a valid chunk because maybe the calculated neighbour chunk does not exist
-            if let Some(chunk) = chunk {
-                chunk.dirty = false;
-                chunk.dirty_neighbours.clear();
-                chunk.vertices_drawn = 0;
-
-                let sides = active_faces.get(&chunk_coords).unwrap();
-                let n_visible_faces = sides.iter().map(|faces| faces.iter()
-                    .fold(0, |acc, &b| acc + b as u32))
-                    .fold(0, |acc, n| acc + n);
-
-                if n_visible_faces == 0 {
-                    continue;
+        for &(c_x, c_z) in &self.fresh_chunk_columns.clone() {
+            for c_y in 0..16 {
+                for (b_x, b_y, b_z) in BlockIterator::new() {
+                    self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
                 }
-
-                // Initialize the VBO
-                gl_call!(gl::NamedBufferData(chunk.vbo,
-                    (6 * 10 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
-                    null(),
-                    gl::DYNAMIC_DRAW));
-
-                // Map VBO to virtual memory
-                let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(chunk.vbo, gl::WRITE_ONLY)) as *mut f32;
-                let mut vbo_offset = 0;
-
-                let sides_vec = active_faces.get(&chunk_coords).unwrap();
-                let ao_vec = ao_chunks.get(&chunk_coords).unwrap();
-                let mut j = 0;
-
-                for (x, y, z) in BlockIterator::new() {
-                    let block = chunk.get_block(x, y, z);
-                    if block != BlockID::Air {
-                        let active_sides = sides_vec[j];
-                        let ao_block = ao_vec[j];
-
-                        let uvs = uv_map.get(&block).unwrap().clone();
-                        let uvs = uvs.get_uv_of_every_face();
-
-                        let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides, ao_block) };
-                        // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
-                        // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
-                        chunk.vertices_drawn += copied_vertices;
-                        vbo_offset += copied_vertices as isize * 10; // 5 floats per vertex
-                        j += 1;
-                    }
-
-                }
-                gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
+                self.update_chunk(c_x, c_y, c_z, &uv_map);
             }
+        }
+        self.fresh_chunk_columns.clear();
+
+        for (&(c_x, c_y, c_z), dirty_blocks) in &changelist_per_chunk {
+            if let None = self.get_chunk(c_x, c_y, c_z) {
+                continue;
+            }
+            for &(b_x, b_y, b_z) in dirty_blocks {
+                self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
+            }
+            self.update_chunk(c_x, c_y, c_z, &uv_map);
         }
     }
 
