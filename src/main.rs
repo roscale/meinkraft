@@ -114,12 +114,6 @@ fn main() {
         texture_pack
     });
     world.insert({
-        let mut chunk_manager = ChunkManager::new();
-        chunk_manager.single_column();
-        // chunk_manager.generate_terrain();
-        chunk_manager
-    });
-    world.insert({
         let mut particle_systems: HashMap<&str, ParticleSystem> = HashMap::new();
         particle_systems.insert("block_particles", ParticleSystem::new(500));
         particle_systems
@@ -133,6 +127,12 @@ fn main() {
         shaders_resource.insert("particle_shader", ShaderProgram::compile("src/shaders/particle.vert", "src/shaders/particle.frag"));
         shaders_resource.insert("hand_shader", ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag"));
         shaders_resource
+    });
+    world.insert({
+        let mut chunk_manager = ChunkManager::new();
+        chunk_manager.generate_terrain();
+        chunk_manager.single_column();
+        chunk_manager
     });
 
     {

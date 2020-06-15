@@ -10,9 +10,9 @@ edition = "2018"
 # Set the default for dependencies in Development mode.
 opt-level = 3
 
-[profile.dev]
-# Turn on a small amount of optimisation in Development mode.
-opt-level = 1
+#[profile.dev]
+## Turn on a small amount of optimisation in Development mode.
+#opt-level = 1
 
 [dependencies]
 glfw = "0.35.0"
@@ -31,3 +31,4 @@ lazy_static = "1.4.0"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"
 specs = { version = "0.16.1", features = ["specs-derive"] }
+bit-vec = "0.6.2"

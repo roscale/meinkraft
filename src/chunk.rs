@@ -1,8 +1,10 @@
-use std::collections::HashSet;
+use bit_vec::BitVec;
 use rand::{random, Rng};
-use rand::prelude::Distribution;
 use rand::distributions::Standard;
-use crate::chunk_manager::{CHUNK_VOLUME, CHUNK_SIZE};
+use rand::prelude::Distribution;
+
+use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
+use itertools::Itertools;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {
@@ -88,89 +90,44 @@ fn create_vao_vbo() -> (u32, u32) {
 }
 
 pub struct ChunkColumn {
-    pub chunks: [Chunk; 16],
+    pub chunks: Vec<Chunk>,
 }
 
 impl ChunkColumn {
     pub fn new() -> Self {
         Self {
-            chunks: [
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-                Chunk::empty(),
-            ],
+            chunks: (0..16).map(|_| Chunk::empty()).collect_vec(),
         }
     }
 
     pub fn random() -> Self {
         Self {
-            chunks: [
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-                Chunk::random(),
-            ],
+            chunks: (0..16).map(|_| Chunk::random()).collect_vec(),
         }
     }
 
     pub fn alternating() -> Self {
         Self {
-            chunks: [
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-                Chunk::full_of_block(BlockID::Cobblestone),
-                Chunk::full_of_block(BlockID::Dirt),
-            ],
+            chunks: (0..16).map(|i| {
+                if i % 2 == 0 {
+                    Chunk::full_of_block(BlockID::Cobblestone)
+                } else {
+                    Chunk::full_of_block(BlockID::Dirt)
+                }
+            }).collect_vec(),
         }
     }
 }
 
 pub struct Chunk {
-    blocks: [BlockID; CHUNK_VOLUME as usize],
+    pub blocks: [BlockID; CHUNK_VOLUME as usize],
+    pub active_faces: BitVec,
+    pub ao_vertices: [[[u8; 4]; 6]; CHUNK_VOLUME as usize],
+    pub needs_complete_rebuild: bool,
+
     pub vao: u32,
     pub vbo: u32,
     pub vertices_drawn: u32,
-    // When a chunk is dirty, its VBO needs to be recreated to match the blocks array
-    pub dirty: bool,
-    // Changes to the outer blocks of the chunk lead to dirty nearby chunks
-    pub dirty_neighbours: HashSet<(i32, i32, i32)>,
 }
 
 impl Default for Chunk {
@@ -180,51 +137,32 @@ impl Default for Chunk {
 }
 
 impl Chunk {
-    /// Returns the relative coordinates of nearby chunks whether they exist or not
-    fn all_neighbours() -> HashSet<(i32, i32, i32)> {
-        let mut hs = HashSet::new();
-        hs.insert((1, 0, 0));
-        hs.insert((0, 1, 0));
-        hs.insert((0, 0, 1));
-        hs.insert((-1, 0, 0));
-        hs.insert((0, -1, 0));
-        hs.insert((0, 0, -1));
-        hs
+    /// Creates a chunk where every block is the same
+    pub fn full_of_block(block: BlockID) -> Self {
+        let (vao, vbo) = create_vao_vbo();
+
+        Self {
+            blocks: [block; CHUNK_VOLUME as usize],
+            active_faces: BitVec::from_elem(6 * CHUNK_VOLUME as usize, false),
+            ao_vertices: [[[0; 4]; 6]; CHUNK_VOLUME as usize],
+            needs_complete_rebuild: true,
+
+            vao,
+            vbo,
+            vertices_drawn: 0,
+        }
     }
 
     /// Creates an empty chunk with no blocks
-    pub fn empty() -> Chunk {
-        let (vao, vbo) = create_vao_vbo();
-
-        Chunk {
-            blocks: [BlockID::Air; CHUNK_VOLUME as usize],
-            vao,
-            vbo,
-            vertices_drawn: 0,
-            dirty: true,
-            dirty_neighbours: Chunk::all_neighbours(),
-        }
-    }
-
-    /// Creates a chunk where every block is the same
-    pub fn full_of_block(block: BlockID) -> Chunk {
-        let (vao, vbo) = create_vao_vbo();
-
-        Chunk {
-            blocks: [block; CHUNK_VOLUME as usize],
-            vao,
-            vbo,
-            vertices_drawn: 0,
-            dirty: true,
-            dirty_neighbours: Chunk::all_neighbours(),
-        }
+    pub fn empty() -> Self {
+        Self::full_of_block(BlockID::Air)
     }
 
     /// Creates a chunk where every block is random
-    pub fn random() -> Chunk {
+    pub fn random() -> Self {
         let (vao, vbo) = create_vao_vbo();
 
-        Chunk {
+        Self {
             blocks: {
                 let mut blocks = [BlockID::Air; CHUNK_VOLUME as usize];
                 for i in 0..blocks.len() {
@@ -232,45 +170,31 @@ impl Chunk {
                 }
                 blocks
             },
+            active_faces: BitVec::from_elem(6 * CHUNK_VOLUME as usize, false),
+            ao_vertices: [[[0; 4]; 6]; CHUNK_VOLUME as usize],
+            needs_complete_rebuild: true,
+
             vao,
             vbo,
             vertices_drawn: 0,
-            dirty: true,
-            dirty_neighbours: Chunk::all_neighbours(),
         }
     }
 
     #[inline]
-    fn coords_to_index(x: u32, y: u32, z: u32) -> usize {
+    fn chunk_coords_to_array_index(x: u32, y: u32, z: u32) -> usize {
         (y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x) as usize
     }
 
     #[inline]
     pub fn get_block(&self, x: u32, y: u32, z: u32) -> BlockID {
-        self.blocks[Chunk::coords_to_index(x, y, z)]
+        self.blocks[Chunk::chunk_coords_to_array_index(x, y, z)]
     }
 
     /// Sets a block at some given coordinates
     /// The coordinates must be within the chunk size
+    #[inline]
     pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
-        self.blocks[Chunk::coords_to_index(x, y, z)] = block;
-        self.dirty = true;
-        // The edges of the chunk
-        if x == 0 {
-            self.dirty_neighbours.insert((-1, 0, 0));
-        } else if x == 15 {
-            self.dirty_neighbours.insert((1, 0, 0));
-        }
-        if y == 0 {
-            self.dirty_neighbours.insert((0, -1, 0));
-        } else if y == 15 {
-            self.dirty_neighbours.insert((0, 1, 0));
-        }
-        if z == 0 {
-            self.dirty_neighbours.insert((0, 0, -1));
-        } else if z == 15 {
-            self.dirty_neighbours.insert((0, 0, 1));
-        }
+        self.blocks[Chunk::chunk_coords_to_array_index(x, y, z)] = block;
     }
 }
 
