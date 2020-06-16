@@ -7,7 +7,7 @@ use noise::{NoiseFn, Point2, SuperSimplex};
 use rand::random;
 
 use crate::ambient_occlusion::compute_ao_of_block;
-use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
+use crate::chunk::{BlockID, BlockIterator, Chunk};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
@@ -18,8 +18,8 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 #[derive(Default)]
 pub struct ChunkManager {
-    loaded_chunks: HashMap<(i32, i32), ChunkColumn>,
-    fresh_chunk_columns: HashSet<(i32, i32)>,
+    loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
+    fresh_chunk: HashSet<(i32, i32, i32)>,
     pub block_changelist: HashSet<(i32, i32, i32)>,
 }
 
@@ -27,42 +27,44 @@ impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
             loaded_chunks: HashMap::new(),
-            fresh_chunk_columns: HashSet::new(),
+            fresh_chunk: HashSet::new(),
             block_changelist: HashSet::new(),
         }
     }
 
     pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
-        if y < 0 || y >= 16 {
-            return None;
-        }
-        self.loaded_chunks.get(&(x, z)).and_then(|col| Some(&col.chunks[y as usize]))
+        self.loaded_chunks.get(&(x, y, z))
     }
 
     pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Chunk> {
-        if y < 0 || y >= 16 {
-            return None;
-        }
-        self.loaded_chunks.get_mut(&(x, z)).and_then(|col| Some(&mut col.chunks[y as usize]))
+        self.loaded_chunks.get_mut(&(x, y, z))
     }
 
-    pub fn add_chunk_column(&mut self, xz: (i32, i32), chunk_column: ChunkColumn) {
-        self.loaded_chunks.insert(xz, chunk_column);
-        self.fresh_chunk_columns.insert(xz);
+    pub fn add_chunk(&mut self, xyz: (i32, i32, i32), chunk: Chunk) {
+        if !self.loaded_chunks.contains_key(&xyz) {
+            self.loaded_chunks.insert(xyz, chunk);
+            self.fresh_chunk.insert(xyz);
+        }
+    }
+
+    pub fn remove_chunk(&mut self, xyz: &(i32, i32, i32)) {
+        self.loaded_chunks.remove(&xyz);
     }
 
     pub fn generate_terrain(&mut self) {
         let render_distance = 5;
 
         let ss = SuperSimplex::new();
-        for z in -render_distance..=render_distance {
-            for x in -render_distance..=render_distance {
-                self.add_chunk_column((x, z), ChunkColumn::new());
+        for y in -render_distance..=render_distance {
+            for z in -render_distance..=render_distance {
+                for x in -render_distance..=render_distance {
+                    self.add_chunk((x, y, z), Chunk::new());
+                }
             }
         }
 
-        for x in -16 * render_distance..16 * render_distance {
-            for z in -16 * render_distance..16 * render_distance {
+        for x in -16 * render_distance..=16 * render_distance {
+            for z in -16 * render_distance..=16 * render_distance {
                 // Scale the input for the noise function
                 let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
                 let y = ss.get(Point2::from([xf, zf]));
@@ -110,20 +112,22 @@ impl ChunkManager {
     }
 
     pub fn preload_some_chunks(&mut self) {
-        for z in 0..2 {
-            for x in 0..2 {
-                self.add_chunk_column((x, z), ChunkColumn::random());
+        for y in 0..2 {
+            for z in 0..2 {
+                for x in 0..2 {
+                    self.add_chunk((x, y, z), Chunk::new());
+                }
             }
         }
     }
 
     pub fn single(&mut self) {
-        self.add_chunk_column((0, 0), ChunkColumn::new());
+        self.add_chunk((0, 0, 0), Chunk::new());
         self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
-    pub fn single_column(&mut self) {
-        self.add_chunk_column((0, 0), ChunkColumn::alternating());
+    pub fn single_chunk(&mut self) {
+        self.add_chunk((0, 0, 0), Chunk::full_of_block(BlockID::Cobblestone));
     }
 
     // Transform global block coordinates into chunk local coordinates
@@ -286,15 +290,13 @@ impl ChunkManager {
         }
         self.block_changelist.clear();
 
-        for &(c_x, c_z) in &self.fresh_chunk_columns.clone() {
-            for c_y in 0..16 {
-                for (b_x, b_y, b_z) in BlockIterator::new() {
-                    self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-                }
-                self.update_chunk(c_x, c_y, c_z, &uv_map);
+        for &(c_x, c_y, c_z) in &self.fresh_chunk.clone() {
+            for (b_x, b_y, b_z) in BlockIterator::new() {
+                self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
             }
+            self.update_chunk(c_x, c_y, c_z, &uv_map);
         }
-        self.fresh_chunk_columns.clear();
+        self.fresh_chunk.clear();
 
         for (&(c_x, c_y, c_z), dirty_blocks) in &changelist_per_chunk {
             if let None = self.get_chunk(c_x, c_y, c_z) {
@@ -319,28 +321,26 @@ impl ChunkManager {
     }
 
     pub fn render_loaded_chunks(&self, program: &mut ShaderProgram) {
-        for ((x, z), chunk_column) in &self.loaded_chunks {
-            for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
-                // Skip rendering the chunk if there is nothing to draw
-                if chunk.vertices_drawn == 0 {
-                    continue;
-                }
-                let model_matrix = {
-                    let translate_matrix = Matrix4::new_translation(&vec3(
-                        *x as f32, *y as f32, *z as f32).scale(16.0));
-                    let rotate_matrix = Matrix4::from_euler_angles(
-                        0.0f32,
-                        0.0,
-                        0.0,
-                    );
-                    let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
-                    translate_matrix * rotate_matrix * scale_matrix
-                };
-
-                gl_call!(gl::BindVertexArray(chunk.vao));
-                program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-                gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
+        for ((x, y, z), chunk) in &self.loaded_chunks {
+            // Skip rendering the chunk if there is nothing to draw
+            if chunk.vertices_drawn == 0 {
+                continue;
             }
+            let model_matrix = {
+                let translate_matrix = Matrix4::new_translation(&vec3(
+                    *x as f32, *y as f32, *z as f32).scale(16.0));
+                let rotate_matrix = Matrix4::from_euler_angles(
+                    0.0f32,
+                    0.0,
+                    0.0,
+                );
+                let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
+                translate_matrix * rotate_matrix * scale_matrix
+            };
+
+            gl_call!(gl::BindVertexArray(chunk.vao));
+            program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
         }
     }
 }

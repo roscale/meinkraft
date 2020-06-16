@@ -17,6 +17,7 @@ pub mod fps_counter;
 pub mod hand;
 pub mod inventory;
 pub mod rendering;
+pub mod chunk_loading;
 
 pub struct AdvanceGlobalTime;
 

@@ -31,6 +31,7 @@ use crate::shader_compilation::ShaderProgram;
 use crate::texture_pack::generate_array_texture;
 use crate::types::Shaders;
 use crate::window::create_window;
+use crate::ecs::systems::chunk_loading::ChunkLoading;
 
 #[macro_use]
 pub mod debugging;
@@ -94,6 +95,7 @@ fn main() {
         .with_thread_local(UpdatePlayerState)
         .with_thread_local(PlaceAndBreakBlocks)
         .with_thread_local(UpdateMainHand)
+        .with_thread_local(ChunkLoading::new())
 
         .with_thread_local(RenderChunks)
         .with_thread_local(RenderParticles)
@@ -130,8 +132,8 @@ fn main() {
     });
     world.insert({
         let mut chunk_manager = ChunkManager::new();
-        chunk_manager.generate_terrain();
-        chunk_manager.single_column();
+        // chunk_manager.generate_terrain();
+        // chunk_manager.single_chunk();
         chunk_manager
     });
 

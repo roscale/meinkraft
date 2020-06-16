@@ -137,6 +137,10 @@ impl Default for Chunk {
 }
 
 impl Chunk {
+    pub fn new() -> Self {
+        Self::empty()
+    }
+
     /// Creates a chunk where every block is the same
     pub fn full_of_block(block: BlockID) -> Self {
         let (vao, vbo) = create_vao_vbo();
