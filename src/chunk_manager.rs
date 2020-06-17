@@ -18,7 +18,7 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 #[derive(Default)]
 pub struct ChunkManager {
-    loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
+    loaded_chunks: HashMap<(i32, i32, i32), Box<Chunk>>,
     fresh_chunk: HashSet<(i32, i32, i32)>,
     pub block_changelist: HashSet<(i32, i32, i32)>,
 }
@@ -32,17 +32,17 @@ impl ChunkManager {
         }
     }
 
-    pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
+    pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Box<Chunk>> {
         self.loaded_chunks.get(&(x, y, z))
     }
 
-    pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Chunk> {
+    pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Box<Chunk>> {
         self.loaded_chunks.get_mut(&(x, y, z))
     }
 
     pub fn add_chunk(&mut self, xyz: (i32, i32, i32), chunk: Chunk) {
         if !self.loaded_chunks.contains_key(&xyz) {
-            self.loaded_chunks.insert(xyz, chunk);
+            self.loaded_chunks.insert(xyz, Box::new(chunk));
             self.fresh_chunk.insert(xyz);
         }
     }
@@ -193,7 +193,7 @@ impl ChunkManager {
             .is_some()
     }
 
-    fn update_block(&mut self, c_x: i32, c_y: i32, c_z: i32, b_x: u32, b_y: u32, b_z: u32) {
+    pub fn update_block(&mut self, c_x: i32, c_y: i32, c_z: i32, b_x: u32, b_y: u32, b_z: u32) {
         let chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
         if chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
             return;
@@ -222,7 +222,7 @@ impl ChunkManager {
         chunk.ao_vertices[array_index] = block_ao;
     }
 
-    fn update_chunk(&mut self, c_x: i32, c_y: i32, c_z: i32, texture_pack: &TexturePack) {
+    pub fn upload_chunk_to_gpu(&mut self, c_x: i32, c_y: i32, c_z: i32, texture_pack: &TexturePack) {
         let mut chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
 
         let n_visible_faces = chunk.active_faces.iter().fold(0, |acc, b| acc + b as i32);
@@ -290,13 +290,12 @@ impl ChunkManager {
         }
         self.block_changelist.clear();
 
-        for &(c_x, c_y, c_z) in &self.fresh_chunk.clone() {
-            for (b_x, b_y, b_z) in BlockIterator::new() {
-                self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-            }
-            self.update_chunk(c_x, c_y, c_z, &uv_map);
-        }
-        self.fresh_chunk.clear();
+        // for &(c_x, c_y, c_z) in &self.fresh_chunk.clone() {
+        //     for (b_x, b_y, b_z) in BlockIterator::new() {
+        //         self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
+        //     }
+        // }
+        // self.fresh_chunk.clear();
 
         for (&(c_x, c_y, c_z), dirty_blocks) in &changelist_per_chunk {
             if let None = self.get_chunk(c_x, c_y, c_z) {
@@ -305,7 +304,7 @@ impl ChunkManager {
             for &(b_x, b_y, b_z) in dirty_blocks {
                 self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
             }
-            self.update_chunk(c_x, c_y, c_z, &uv_map);
+            self.upload_chunk_to_gpu(c_x, c_y, c_z, &uv_map);
         }
     }
 
