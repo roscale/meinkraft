@@ -7,7 +7,7 @@ use noise::{NoiseFn, Point2, SuperSimplex};
 use rand::random;
 
 use crate::ambient_occlusion::compute_ao_of_block;
-use crate::chunk::{BlockID, BlockIterator, Chunk};
+use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
 use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
@@ -18,7 +18,7 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 #[derive(Default)]
 pub struct ChunkManager {
-    loaded_chunks: HashMap<(i32, i32, i32), Box<Chunk>>,
+    loaded_chunk_columns: HashMap<(i32, i32), Box<ChunkColumn>>,
     fresh_chunk: HashSet<(i32, i32, i32)>,
     pub block_changelist: HashSet<(i32, i32, i32)>,
 }
@@ -26,112 +26,110 @@ pub struct ChunkManager {
 impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
-            loaded_chunks: HashMap::new(),
+            loaded_chunk_columns: HashMap::new(),
             fresh_chunk: HashSet::new(),
             block_changelist: HashSet::new(),
         }
     }
 
-    pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Box<Chunk>> {
-        self.loaded_chunks.get(&(x, y, z))
+    pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
+        self.loaded_chunk_columns.get(&(x, z)).map(|column| &column.chunks[y as usize])
     }
 
-    pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Box<Chunk>> {
-        self.loaded_chunks.get_mut(&(x, y, z))
+    pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Chunk> {
+        self.loaded_chunk_columns.get_mut(&(x, z)).map(|column| &mut column.chunks[y as usize])
     }
 
-    pub fn add_chunk(&mut self, xyz: (i32, i32, i32), chunk: Chunk) {
-        if !self.loaded_chunks.contains_key(&xyz) {
-            self.loaded_chunks.insert(xyz, Box::new(chunk));
-            self.fresh_chunk.insert(xyz);
+    pub fn add_chunk_column(&mut self, xz: (i32, i32), chunk_column: Box<ChunkColumn>) {
+        if !self.loaded_chunk_columns.contains_key(&xz) {
+            self.loaded_chunk_columns.insert(xz, chunk_column);
+            // self.fresh_chunk.insert(xz);
         }
     }
 
-    pub fn remove_chunk(&mut self, xyz: &(i32, i32, i32)) {
-        self.loaded_chunks.remove(&xyz);
+    pub fn remove_chunk(&mut self, xz: &(i32, i32)) {
+        self.loaded_chunk_columns.remove(&xz);
     }
 
-    pub fn generate_terrain(&mut self) {
-        let render_distance = 5;
-
-        let ss = SuperSimplex::new();
-        for y in -render_distance..=render_distance {
-            for z in -render_distance..=render_distance {
-                for x in -render_distance..=render_distance {
-                    self.add_chunk((x, y, z), Chunk::new());
-                }
-            }
-        }
-
-        for x in -16 * render_distance..=16 * render_distance {
-            for z in -16 * render_distance..=16 * render_distance {
-                // Scale the input for the noise function
-                let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
-                let y = ss.get(Point2::from([xf, zf]));
-                let y = (16.0 * (y + 1.0)) as i32;
-
-                // Ground layers
-                self.set_block(BlockID::GrassBlock, x, y, z);
-                self.set_block(BlockID::Dirt, x, y - 1, z);
-                self.set_block(BlockID::Dirt, x, y - 2, z);
-                self.set_block(BlockID::Cobblestone, x, y - 3, z);
-
-                // Trees
-                if random::<u32>() % 100 < 1 {
-                    let h = 5;
-                    for i in y + 1..y + 1 + h {
-                        self.set_block(BlockID::OakLog, x, i, z);
-                    }
-
-                    for yy in y + h - 2..=y + h - 1 {
-                        for xx in x - 2..=x + 2 {
-                            for zz in z - 2..=z + 2 {
-                                if xx != x || zz != z {
-                                    self.set_block(BlockID::OakLeaves, xx, yy, zz);
-                                }
-                            }
-                        }
-                    }
-
-                    for xx in x - 1..=x + 1 {
-                        for zz in z - 1..=z + 1 {
-                            if xx != x || zz != z {
-                                self.set_block(BlockID::OakLeaves, xx, y + h, zz);
-                            }
-                        }
-                    }
-
-                    self.set_block(BlockID::OakLeaves, x, y + h + 1, z);
-                    self.set_block(BlockID::OakLeaves, x + 1, y + h + 1, z);
-                    self.set_block(BlockID::OakLeaves, x - 1, y + h + 1, z);
-                    self.set_block(BlockID::OakLeaves, x, y + h + 1, z + 1);
-                    self.set_block(BlockID::OakLeaves, x, y + h + 1, z - 1);
-                }
-            }
-        }
-    }
+    // pub fn generate_terrain(&mut self) {
+    //     let render_distance = 5;
+    //
+    //     let ss = SuperSimplex::new();
+    //     for y in -render_distance..=render_distance {
+    //         for z in -render_distance..=render_distance {
+    //             for x in -render_distance..=render_distance {
+    //                 self.add_chunk_column((x, y, z), Chunk::new());
+    //             }
+    //         }
+    //     }
+    //
+    //     for x in -16 * render_distance..=16 * render_distance {
+    //         for z in -16 * render_distance..=16 * render_distance {
+    //             // Scale the input for the noise function
+    //             let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
+    //             let y = ss.get(Point2::from([xf, zf]));
+    //             let y = (16.0 * (y + 1.0)) as i32;
+    //
+    //             // Ground layers
+    //             self.set_block(BlockID::GrassBlock, x, y, z);
+    //             self.set_block(BlockID::Dirt, x, y - 1, z);
+    //             self.set_block(BlockID::Dirt, x, y - 2, z);
+    //             self.set_block(BlockID::Cobblestone, x, y - 3, z);
+    //
+    //             // Trees
+    //             if random::<u32>() % 100 < 1 {
+    //                 let h = 5;
+    //                 for i in y + 1..y + 1 + h {
+    //                     self.set_block(BlockID::OakLog, x, i, z);
+    //                 }
+    //
+    //                 for yy in y + h - 2..=y + h - 1 {
+    //                     for xx in x - 2..=x + 2 {
+    //                         for zz in z - 2..=z + 2 {
+    //                             if xx != x || zz != z {
+    //                                 self.set_block(BlockID::OakLeaves, xx, yy, zz);
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //
+    //                 for xx in x - 1..=x + 1 {
+    //                     for zz in z - 1..=z + 1 {
+    //                         if xx != x || zz != z {
+    //                             self.set_block(BlockID::OakLeaves, xx, y + h, zz);
+    //                         }
+    //                     }
+    //                 }
+    //
+    //                 self.set_block(BlockID::OakLeaves, x, y + h + 1, z);
+    //                 self.set_block(BlockID::OakLeaves, x + 1, y + h + 1, z);
+    //                 self.set_block(BlockID::OakLeaves, x - 1, y + h + 1, z);
+    //                 self.set_block(BlockID::OakLeaves, x, y + h + 1, z + 1);
+    //                 self.set_block(BlockID::OakLeaves, x, y + h + 1, z - 1);
+    //             }
+    //         }
+    //     }
+    // }
 
     pub fn preload_some_chunks(&mut self) {
-        for y in 0..2 {
-            for z in 0..2 {
-                for x in 0..2 {
-                    self.add_chunk((x, y, z), Chunk::new());
-                }
+        for z in 0..2 {
+            for x in 0..2 {
+                self.add_chunk_column((x, z), Box::new(ChunkColumn::new()));
             }
         }
     }
 
     pub fn single(&mut self) {
-        self.add_chunk((0, 0, 0), Chunk::new());
+        self.add_chunk_column((0, 0), Box::new(ChunkColumn::new()));
         self.set_block(BlockID::Cobblestone, 0, 0, 0);
     }
 
     pub fn single_chunk(&mut self) {
-        self.add_chunk((0, 0, 0), Chunk::full_of_block(BlockID::Cobblestone));
+        self.add_chunk_column((0, 0), Box::new(ChunkColumn::full_of_block(BlockID::Cobblestone)));
     }
 
     // Transform global block coordinates into chunk local coordinates
-    fn get_chunk_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
+    pub fn get_chunk_coords(x: i32, y: i32, z: i32) -> (i32, i32, i32, u32, u32, u32) {
         let chunk_x = if x < 0 { (x + 1) / 16 - 1 } else { x / 16 };
         let chunk_y = if y < 0 { (y + 1) / 16 - 1 } else { y / 16 };
         let chunk_z = if z < 0 { (z + 1) / 16 - 1 } else { z / 16 };
@@ -320,26 +318,28 @@ impl ChunkManager {
     }
 
     pub fn render_loaded_chunks(&self, program: &mut ShaderProgram) {
-        for ((x, y, z), chunk) in &self.loaded_chunks {
-            // Skip rendering the chunk if there is nothing to draw
-            if chunk.vertices_drawn == 0 {
-                continue;
-            }
-            let model_matrix = {
-                let translate_matrix = Matrix4::new_translation(&vec3(
-                    *x as f32, *y as f32, *z as f32).scale(16.0));
-                let rotate_matrix = Matrix4::from_euler_angles(
-                    0.0f32,
-                    0.0,
-                    0.0,
-                );
-                let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
-                translate_matrix * rotate_matrix * scale_matrix
-            };
+        for ((x, z), chunk_column) in &self.loaded_chunk_columns {
+            for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
+                // Skip rendering the chunk if there is nothing to draw
+                if chunk.vertices_drawn == 0 {
+                    continue;
+                }
+                let model_matrix = {
+                    let translate_matrix = Matrix4::new_translation(&vec3(
+                        *x as f32, *y as f32, *z as f32).scale(16.0));
+                    let rotate_matrix = Matrix4::from_euler_angles(
+                        0.0f32,
+                        0.0,
+                        0.0,
+                    );
+                    let scale_matrix: Mat4 = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
+                    translate_matrix * rotate_matrix * scale_matrix
+                };
 
-            gl_call!(gl::BindVertexArray(chunk.vao));
-            program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
+                gl_call!(gl::BindVertexArray(chunk.vao));
+                program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+                gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
+            }
         }
     }
 }

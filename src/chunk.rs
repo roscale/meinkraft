@@ -3,7 +3,7 @@ use rand::{random, Rng};
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 
-use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
+use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME, ChunkManager};
 use itertools::Itertools;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -90,32 +90,104 @@ fn create_vao_vbo() -> (u32, u32) {
 }
 
 pub struct ChunkColumn {
-    pub chunks: Vec<Chunk>,
+    pub chunks: [Chunk; 16],
 }
 
 impl ChunkColumn {
     pub fn new() -> Self {
         Self {
-            chunks: (0..16).map(|_| Chunk::empty()).collect_vec(),
+            chunks: [
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+                Chunk::empty(),
+            ]
         }
     }
 
     pub fn random() -> Self {
         Self {
-            chunks: (0..16).map(|_| Chunk::random()).collect_vec(),
+            chunks: [
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+                Chunk::random(),
+            ],
+        }
+    }
+
+    pub fn full_of_block(block: BlockID) -> Self {
+        Self {
+            chunks: [
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+                Chunk::full_of_block(block),
+            ],
         }
     }
 
     pub fn alternating() -> Self {
         Self {
-            chunks: (0..16).map(|i| {
-                if i % 2 == 0 {
-                    Chunk::full_of_block(BlockID::Cobblestone)
-                } else {
-                    Chunk::full_of_block(BlockID::Dirt)
-                }
-            }).collect_vec(),
+            chunks: [
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+                Chunk::full_of_block(BlockID::Dirt),
+                Chunk::full_of_block(BlockID::Cobblestone),
+            ],
         }
+    }
+
+    pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
+        self.chunks[(y / 16) as usize].set_block(block, x, y % 16, z);
     }
 }
 

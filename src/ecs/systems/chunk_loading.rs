@@ -4,12 +4,13 @@ use noise::{NoiseFn, Point2, SuperSimplex};
 use rand::random;
 use specs::{Join, Read, ReadStorage, System, Write};
 
-use crate::chunk::{BlockID, BlockIterator, Chunk};
+use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::chunk_manager::ChunkManager;
 use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
 use crate::types::TexturePack;
 use std::time::Instant;
+use std::process::exit;
 
 pub struct ChunkLoading {
     ss: SuperSimplex,
@@ -81,7 +82,7 @@ impl ChunkLoading {
     }
 }
 
-const RENDER_DISTANCE: i32 = 5;
+const RENDER_DISTANCE: i32 = 2;
 
 impl<'a> System<'a> for ChunkLoading {
     type SystemData = (
@@ -109,65 +110,74 @@ impl<'a> System<'a> for ChunkLoading {
 
                 let visited = Self::flood_fill_2d(c_x, c_z, RENDER_DISTANCE + 2);
 
+                let now = Instant::now();
+
+
                 let new_columns = visited.difference(&self.loaded_columns);
                 for &(x, z) in new_columns {
-                    for y in 0..16 {
-                        chunk_manager.add_chunk((x, y, z), Chunk::empty());
-                    }
+                    let mut column = Box::new(ChunkColumn::new());
 
-                    let now = Instant::now();
+                    for b_x in 0..16 {
+                        for b_z in 0..16 {
 
-                    for x in (16 * x)..(16 * (x + 1)) {
-                        for z in (16 * z)..(16 * (z + 1)) {
+                            // let now = Instant::now();
+                            let x = 16 * x;
+                            let z = 16 * z;
+
                             // Scale the input for the noise function
-                            let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
+                            let (xf, zf) = ((x + b_x as i32) as f64 / 64.0, (z + b_z as i32) as f64 / 64.0);
                             let y = self.ss.get(Point2::from([xf, zf]));
-                            let y = (16.0 * (y + 10.0)) as i32;
+                            let y = (16.0 * (y + 10.0)) as u32;
 
                             // Ground layers
-                            chunk_manager.set_block(BlockID::GrassBlock, x, y, z);
-                            chunk_manager.set_block(BlockID::Dirt, x, y - 1, z);
-                            chunk_manager.set_block(BlockID::Dirt, x, y - 2, z);
+                            column.set_block(BlockID::GrassBlock, b_x, y, b_z);
+                            column.set_block(BlockID::Dirt, b_x, y - 1, b_z);
+                            column.set_block(BlockID::Dirt, b_x, y - 2, b_z);
+
+                            // println!("what {:#?}", Instant::now().duration_since(now));
                             // for y in 0..=y - 3 {
                             //     chunk_manager.set_block(BlockID::Cobblestone, x, y, z);
                             // }
 
                             // Trees
-                            if random::<u32>() % 100 < 1 {
-                                let h = 5;
-                                for i in y + 1..y + 1 + h {
-                                    chunk_manager.set_block(BlockID::OakLog, x, i, z);
-                                }
-
-                                for yy in y + h - 2..=y + h - 1 {
-                                    for xx in x - 2..=x + 2 {
-                                        for zz in z - 2..=z + 2 {
-                                            if xx != x || zz != z {
-                                                chunk_manager.set_block(BlockID::OakLeaves, xx, yy, zz);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                for xx in x - 1..=x + 1 {
-                                    for zz in z - 1..=z + 1 {
-                                        if xx != x || zz != z {
-                                            chunk_manager.set_block(BlockID::OakLeaves, xx, y + h, zz);
-                                        }
-                                    }
-                                }
-
-                                chunk_manager.set_block(BlockID::OakLeaves, x, y + h + 1, z);
-                                chunk_manager.set_block(BlockID::OakLeaves, x + 1, y + h + 1, z);
-                                chunk_manager.set_block(BlockID::OakLeaves, x - 1, y + h + 1, z);
-                                chunk_manager.set_block(BlockID::OakLeaves, x, y + h + 1, z + 1);
-                                chunk_manager.set_block(BlockID::OakLeaves, x, y + h + 1, z - 1);
-                            }
-                        }
+                            // if random::<u32>() % 100 < 1 {
+                            //     let h = 5;
+                            //     for i in y + 1..y + 1 + h {
+                            //         chunk_manager.set_block(BlockID::OakLog, b_x, i, b_z);
+                            //     }
+                            //
+                            //     for yy in y + h - 2..=y + h - 1 {
+                            //         for xx in b_x - 2..=b_x + 2 {
+                            //             for zz in b_z - 2..=b_z + 2 {
+                            //                 if xx != b_x || zz != b_z {
+                            //                     chunk_manager.set_block(BlockID::OakLeaves, xx, yy, zz);
+                            //                 }
+                            //             }
+                            //         }
+                            //     }
+                            //
+                            //     for xx in b_x - 1..=b_x + 1 {
+                            //         for zz in b_z - 1..=b_z + 1 {
+                            //             if xx != b_x || zz != b_z {
+                            //                 chunk_manager.set_block(BlockID::OakLeaves, xx, y + h, zz);
+                            //             }
+                            //         }
+                            //     }
+                            //
+                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z);
+                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x + 1, y + h + 1, b_z);
+                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x - 1, y + h + 1, b_z);
+                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z + 1);
+                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z - 1);
+                            // }
+                        };
                     }
 
-                    println!("{:#?}", Instant::now().duration_since(now));
+                    chunk_manager.add_chunk_column((x, z), column);
                 }
+                println!("setblock {:#?}", Instant::now().duration_since(now));
+                // exit(0);
+
                 self.loaded_columns.extend(visited);
 
                 let visited = Self::flood_fill_3d(c_x, c_y, c_z, RENDER_DISTANCE);
