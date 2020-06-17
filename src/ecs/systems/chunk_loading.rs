@@ -1,16 +1,14 @@
 use std::collections::{HashSet, VecDeque};
 
 use noise::{NoiseFn, Point2, SuperSimplex};
-use rand::random;
 use specs::{Join, Read, ReadStorage, System, Write};
 
-use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
+use crate::chunk::{BlockID, BlockIterator, ChunkColumn};
 use crate::chunk_manager::ChunkManager;
 use crate::physics::Interpolator;
-use crate::player::{PlayerPhysicsState, PlayerState};
+use crate::player::PlayerPhysicsState;
 use crate::types::TexturePack;
 use std::time::Instant;
-use std::process::exit;
 
 pub struct ChunkLoading {
     ss: SuperSimplex,
@@ -124,10 +122,9 @@ impl<'a> System<'a> for ChunkLoading {
 
             if c_xyz != self.chunk_at_player {
                 let now = Instant::now();
-
                 self.chunk_at_player = c_xyz;
                 let visited = Self::flood_fill_2d(c_x, c_z, RENDER_DISTANCE + 2);
-                println!("floodfill {:#?}", Instant::now().duration_since(now));
+                println!("floodfill columns\t{:#?}", Instant::now().duration_since(now));
 
                 let old_columns = self.loaded_columns.difference(&visited);
                 for chunk in old_columns {
@@ -203,12 +200,15 @@ impl<'a> System<'a> for ChunkLoading {
 
                 self.loaded_columns = visited;
 
+                let now = Instant::now();
                 let visited = Self::flood_fill_3d(c_x, c_y, c_z, RENDER_DISTANCE);
+                println!("floodfill chunks\t{:#?}", Instant::now().duration_since(now));
+
                 let new_chunks = visited.difference(&self.loaded_chunks);
                 self.chunks_to_load.extend(new_chunks);
                 self.loaded_chunks = visited;
 
-                println!("setblocks {:#?}", Instant::now().duration_since(now));
+                println!("terrain gen\t{:#?}", Instant::now().duration_since(now));
             }
         }
 
@@ -218,11 +218,11 @@ impl<'a> System<'a> for ChunkLoading {
             for (b_x, b_y, b_z) in BlockIterator::new() {
                 chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
             }
-            println!("Update blocks {:#?}", Instant::now().duration_since(now));
+            println!("AO & face occlusion {:?}\t{:#?}", (c_x, c_y, c_z), Instant::now().duration_since(now));
 
-            let now = Instant::now();
+            // let now = Instant::now();
             chunk_manager.upload_chunk_to_gpu(c_x, c_y, c_z, &texture_pack);
-            println!("Upload {:#?}", Instant::now().duration_since(now));
+            // println!("Upload {:#?}", Instant::now().duration_since(now));
 
         }
 

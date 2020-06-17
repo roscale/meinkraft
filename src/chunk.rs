@@ -3,8 +3,7 @@ use rand::{random, Rng};
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 
-use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME, ChunkManager};
-use itertools::Itertools;
+use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {

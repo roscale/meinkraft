@@ -20,7 +20,7 @@ void main() {
     }
     Color = diffuse_frag;
     if (attrs.normal.x != 0.0) {
-        Color.rgb *= 0.7;
+        Color.rgb *= 0.65;
     } else if (attrs.normal.z != 0.0) {
         Color.rgb *= 0.85;
     } else if (attrs.normal.y != 0.0) {

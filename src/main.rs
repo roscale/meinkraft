@@ -130,12 +130,7 @@ fn main() {
         shaders_resource.insert("hand_shader", ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag"));
         shaders_resource
     });
-    world.insert({
-        let mut chunk_manager = ChunkManager::new();
-        // chunk_manager.generate_terrain();
-        // chunk_manager.single_chunk();
-        chunk_manager
-    });
+    world.insert(ChunkManager::new());
 
     {
         let gui_icons_texture = create_gui_icons_texture();

@@ -3,8 +3,6 @@ use std::ptr::null;
 
 use nalgebra::Matrix4;
 use nalgebra_glm::{Mat4, vec3};
-use noise::{NoiseFn, Point2, SuperSimplex};
-use rand::random;
 
 use crate::ambient_occlusion::compute_ao_of_block;
 use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
@@ -19,7 +17,6 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 #[derive(Default)]
 pub struct ChunkManager {
     loaded_chunk_columns: HashMap<(i32, i32), Box<ChunkColumn>>,
-    fresh_chunk: HashSet<(i32, i32, i32)>,
     pub block_changelist: HashSet<(i32, i32, i32)>,
 }
 
@@ -27,7 +24,6 @@ impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
             loaded_chunk_columns: HashMap::new(),
-            fresh_chunk: HashSet::new(),
             block_changelist: HashSet::new(),
         }
     }
