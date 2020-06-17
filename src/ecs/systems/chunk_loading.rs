@@ -43,10 +43,18 @@ impl ChunkLoading {
                 continue;
             }
 
-            queue.push_back((x + 1, z, dist - 1));
-            queue.push_back((x - 1, z, dist - 1));
-            queue.push_back((x, z + 1, dist - 1));
-            queue.push_back((x, z - 1, dist - 1));
+            if !visited.contains(&(x + 1, z)) {
+                queue.push_back((x + 1, z, dist - 1));
+            }
+            if !visited.contains(&(x - 1, z)) {
+                queue.push_back((x - 1, z, dist - 1));
+            }
+            if !visited.contains(&(x, z + 1)) {
+                queue.push_back((x, z + 1, dist - 1));
+            }
+            if !visited.contains(&(x, z - 1)) {
+                queue.push_back((x, z - 1, dist - 1));
+            }
         }
         visited
     }
@@ -67,14 +75,22 @@ impl ChunkLoading {
                 continue;
             }
 
-            queue.push_back((x + 1, y, z, dist - 1));
-            queue.push_back((x - 1, y, z, dist - 1));
-            queue.push_back((x, y, z + 1, dist - 1));
-            queue.push_back((x, y, z - 1, dist - 1));
-            if y != 15 {
+            if !visited.contains(&(x + 1, y, z)) {
+                queue.push_back((x + 1, y, z, dist - 1));
+            }
+            if !visited.contains(&(x - 1, y, z)) {
+                queue.push_back((x - 1, y, z, dist - 1));
+            }
+            if !visited.contains(&(x, y, z + 1)) {
+                queue.push_back((x, y, z + 1, dist - 1));
+            }
+            if !visited.contains(&(x, y, z - 1)) {
+                queue.push_back((x, y, z - 1, dist - 1));
+            }
+            if y != 15 && !visited.contains(&(x, y + 1, z)) {
                 queue.push_back((x, y + 1, z, dist - 1));
             }
-            if y != 0 {
+            if y != 0 && !visited.contains(&(x, y - 1, z)) {
                 queue.push_back((x, y - 1, z, dist - 1));
             }
         }
@@ -82,7 +98,7 @@ impl ChunkLoading {
     }
 }
 
-const RENDER_DISTANCE: i32 = 2;
+const RENDER_DISTANCE: i32 = 5;
 
 impl<'a> System<'a> for ChunkLoading {
     type SystemData = (
@@ -98,6 +114,7 @@ impl<'a> System<'a> for ChunkLoading {
             texture_pack,
         ) = data;
 
+
         for player_physics_state in (&player_physics_state).join() {
             let state = player_physics_state.get_latest_state();
             let c_x = state.position.x as i32 / 16;
@@ -106,12 +123,16 @@ impl<'a> System<'a> for ChunkLoading {
             let c_xyz = (c_x, c_y, c_z);
 
             if c_xyz != self.chunk_at_player {
-                self.chunk_at_player = c_xyz;
-
-                let visited = Self::flood_fill_2d(c_x, c_z, RENDER_DISTANCE + 2);
-
                 let now = Instant::now();
 
+                self.chunk_at_player = c_xyz;
+                let visited = Self::flood_fill_2d(c_x, c_z, RENDER_DISTANCE + 2);
+                println!("floodfill {:#?}", Instant::now().duration_since(now));
+
+                let old_columns = self.loaded_columns.difference(&visited);
+                for chunk in old_columns {
+                    chunk_manager.remove_chunk(chunk);
+                }
 
                 let new_columns = visited.difference(&self.loaded_columns);
                 for &(x, z) in new_columns {
@@ -133,11 +154,15 @@ impl<'a> System<'a> for ChunkLoading {
                             column.set_block(BlockID::GrassBlock, b_x, y, b_z);
                             column.set_block(BlockID::Dirt, b_x, y - 1, b_z);
                             column.set_block(BlockID::Dirt, b_x, y - 2, b_z);
+                            column.set_block(BlockID::Dirt, b_x, y - 3, b_z);
+                            column.set_block(BlockID::Dirt, b_x, y - 4, b_z);
+                            column.set_block(BlockID::Dirt, b_x, y - 5, b_z);
 
                             // println!("what {:#?}", Instant::now().duration_since(now));
-                            // for y in 0..=y - 3 {
-                            //     chunk_manager.set_block(BlockID::Cobblestone, x, y, z);
-                            // }
+                            for y in 1..y - 5 {
+                                column.set_block(BlockID::Stone, b_x, y, b_z);
+                            }
+                            column.set_block(BlockID::Bedrock, b_x, 0, b_z);
 
                             // Trees
                             // if random::<u32>() % 100 < 1 {
@@ -175,27 +200,29 @@ impl<'a> System<'a> for ChunkLoading {
 
                     chunk_manager.add_chunk_column((x, z), column);
                 }
-                println!("setblock {:#?}", Instant::now().duration_since(now));
-                // exit(0);
 
-                self.loaded_columns.extend(visited);
+                self.loaded_columns = visited;
 
                 let visited = Self::flood_fill_3d(c_x, c_y, c_z, RENDER_DISTANCE);
                 let new_chunks = visited.difference(&self.loaded_chunks);
                 self.chunks_to_load.extend(new_chunks);
-                self.loaded_chunks.extend(visited);
+                self.loaded_chunks = visited;
+
+                println!("setblocks {:#?}", Instant::now().duration_since(now));
             }
         }
 
+
         if let Some((c_x, c_y, c_z)) = self.chunks_to_load.pop_front() {
             let now = Instant::now();
-
             for (b_x, b_y, b_z) in BlockIterator::new() {
                 chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
             }
+            println!("Update blocks {:#?}", Instant::now().duration_since(now));
 
+            let now = Instant::now();
             chunk_manager.upload_chunk_to_gpu(c_x, c_y, c_z, &texture_pack);
-            println!("Load {:#?}", Instant::now().duration_since(now));
+            println!("Upload {:#?}", Instant::now().duration_since(now));
 
         }
 

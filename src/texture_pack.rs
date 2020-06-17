@@ -23,7 +23,9 @@ fn create_face_images_map() -> HashMap<BlockID, BlockFaces<&'static str>> {
         top: "textures/blocks/grass_block_top.png",
         bottom: "textures/blocks/dirt.png",
     });
+    face_images.insert(BlockID::Stone, BlockFaces::All("textures/blocks/stone.png"));
     face_images.insert(BlockID::Cobblestone, BlockFaces::All("textures/blocks/cobblestone.png"));
+    face_images.insert(BlockID::Bedrock, BlockFaces::All("textures/blocks/bedrock.png"));
     face_images.insert(BlockID::Obsidian, BlockFaces::All("textures/blocks/obsidian.png"));
     face_images.insert(BlockID::OakLog, BlockFaces::Sides {
         sides: "textures/blocks/oak_log.png",

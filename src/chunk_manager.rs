@@ -33,10 +33,16 @@ impl ChunkManager {
     }
 
     pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
+        if y < 0 || y > 15 {
+            return None;
+        }
         self.loaded_chunk_columns.get(&(x, z)).map(|column| &column.chunks[y as usize])
     }
 
     pub fn get_chunk_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Chunk> {
+        if y < 0 || y > 15 {
+            return None;
+        }
         self.loaded_chunk_columns.get_mut(&(x, z)).map(|column| &mut column.chunks[y as usize])
     }
 
