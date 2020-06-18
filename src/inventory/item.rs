@@ -84,7 +84,7 @@ impl ItemRender {
     pub fn update_vbo_if_dirty(&mut self, item: BlockID, texture_pack: &TexturePack) {
         if self.dirty {
             self.update_vbo(item, &texture_pack);
-            self.dirty = true;
+            self.dirty = false;
         }
     }
 

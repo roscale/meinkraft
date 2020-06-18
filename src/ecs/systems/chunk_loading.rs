@@ -9,9 +9,11 @@ use crate::physics::Interpolator;
 use crate::player::PlayerPhysicsState;
 use crate::types::TexturePack;
 use std::time::Instant;
+use bit_vec::BitVec;
+use std::iter::FromIterator;
 
 pub struct ChunkLoading {
-    ss: SuperSimplex,
+    noise_fn: SuperSimplex,
     loaded_columns: HashSet<(i32, i32)>,
     loaded_chunks: HashSet<(i32, i32, i32)>,
     chunks_to_load: VecDeque<(i32, i32, i32)>,
@@ -21,7 +23,7 @@ pub struct ChunkLoading {
 impl ChunkLoading {
     pub fn new() -> Self {
         Self {
-            ss: SuperSimplex::new(),
+            noise_fn: SuperSimplex::new(),
             loaded_columns: HashSet::new(),
             loaded_chunks: HashSet::new(),
             chunks_to_load: VecDeque::new(),
@@ -30,69 +32,106 @@ impl ChunkLoading {
     }
 
     fn flood_fill_2d(x: i32, z: i32, distance: i32) -> HashSet<(i32, i32)> {
-        let mut visited = HashSet::new();
+        assert!(distance >= 0);
+
+        let matrix_width = 2 * distance + 1;
+        let mut is_visited = BitVec::from_elem(
+            (matrix_width * matrix_width) as usize, false);
+
+        let center = (x, z);
+        let coords_to_index = move |x: i32, z: i32| {
+            (matrix_width * (x - center.0 + distance)
+                + (z - center.1 + distance)) as usize
+        };
+
+        let mut visited_chunks = HashSet::new();
         let mut queue = VecDeque::new();
         queue.push_back((x, z, distance));
+        is_visited.set(coords_to_index(x, z), true);
 
         while !queue.is_empty() {
             let (x, z, dist) = queue.pop_front().unwrap();
-            visited.insert((x, z));
+            visited_chunks.insert((x, z));
             if dist <= 0 {
                 continue;
             }
 
-            if !visited.contains(&(x + 1, z)) {
+            if !is_visited[coords_to_index(x + 1, z)] {
                 queue.push_back((x + 1, z, dist - 1));
+                is_visited.set(coords_to_index(x + 1, z), true);
             }
-            if !visited.contains(&(x - 1, z)) {
+            if !is_visited[coords_to_index(x - 1, z)] {
                 queue.push_back((x - 1, z, dist - 1));
+                is_visited.set(coords_to_index(x - 1, z), true);
             }
-            if !visited.contains(&(x, z + 1)) {
+            if !is_visited[coords_to_index(x, z + 1)] {
                 queue.push_back((x, z + 1, dist - 1));
+                is_visited.set(coords_to_index(x, z + 1), true);
             }
-            if !visited.contains(&(x, z - 1)) {
+            if !is_visited[coords_to_index(x, z - 1)] {
                 queue.push_back((x, z - 1, dist - 1));
+                is_visited.set(coords_to_index(x, z - 1), true);
             }
         }
-        visited
+        visited_chunks
     }
 
     fn flood_fill_3d(x: i32, y: i32, z: i32, distance: i32) -> HashSet<(i32, i32, i32)> {
-        let mut visited = HashSet::new();
+        assert!(distance >= 0);
+
+        let matrix_width = 2 * distance + 1;
+        let mut is_visited = BitVec::from_elem(
+            (matrix_width * matrix_width * matrix_width) as usize, false);
+
+        let center = (x, y, z);
+        let coords_to_index = move |x: i32, y: i32, z: i32| {
+            (matrix_width * matrix_width * (x - center.0 + distance)
+                + matrix_width * (y - center.1 + distance)
+                + (z - center.2 + distance)) as usize
+        };
+
+        let mut visited_chunks = HashSet::new();
         let mut queue = VecDeque::new();
+        queue.reserve(100);
         queue.push_back((x, y, z, distance));
+        is_visited.set(coords_to_index(x, y, z), true);
 
         while !queue.is_empty() {
             let (x, y, z, dist) = queue.pop_front().unwrap();
-            // dbg!(x, y, z, dist);
             if y < 0 || y > 15 {
                 continue;
             }
-            visited.insert((x, y, z));
+            visited_chunks.insert((x, y, z));
             if dist <= 0 {
                 continue;
             }
 
-            if !visited.contains(&(x + 1, y, z)) {
+            if !is_visited[coords_to_index(x + 1, y, z)] {
                 queue.push_back((x + 1, y, z, dist - 1));
+                is_visited.set(coords_to_index(x + 1, y, z), true);
             }
-            if !visited.contains(&(x - 1, y, z)) {
+            if !is_visited[coords_to_index(x - 1, y, z)] {
                 queue.push_back((x - 1, y, z, dist - 1));
+                is_visited.set(coords_to_index(x - 1, y, z), true);
             }
-            if !visited.contains(&(x, y, z + 1)) {
+            if !is_visited[coords_to_index(x, y, z + 1)] {
                 queue.push_back((x, y, z + 1, dist - 1));
+                is_visited.set(coords_to_index(x, y, z + 1), true);
             }
-            if !visited.contains(&(x, y, z - 1)) {
+            if !is_visited[coords_to_index(x, y, z - 1)] {
                 queue.push_back((x, y, z - 1, dist - 1));
+                is_visited.set(coords_to_index(x, y, z - 1), true);
             }
-            if y != 15 && !visited.contains(&(x, y + 1, z)) {
+            if y != 15 && !is_visited[coords_to_index(x, y + 1, z)] {
                 queue.push_back((x, y + 1, z, dist - 1));
+                is_visited.set(coords_to_index(x, y + 1, z), true);
             }
-            if y != 0 && !visited.contains(&(x, y - 1, z)) {
+            if y != 0 && !is_visited[coords_to_index(x, y - 1, z)] {
                 queue.push_back((x, y - 1, z, dist - 1));
+                is_visited.set(coords_to_index(x, y - 1, z), true);
             }
         }
-        visited
+        visited_chunks
     }
 }
 
@@ -115,9 +154,11 @@ impl<'a> System<'a> for ChunkLoading {
 
         for player_physics_state in (&player_physics_state).join() {
             let state = player_physics_state.get_latest_state();
-            let c_x = state.position.x as i32 / 16;
-            let c_y = state.position.y as i32 / 16;
-            let c_z = state.position.z as i32 / 16;
+            let (c_x, c_y, c_z, _, _, _) = ChunkManager::get_chunk_coords(
+                state.position.x as i32,
+                state.position.y as i32,
+                state.position.z as i32,
+            );
             let c_xyz = (c_x, c_y, c_z);
 
             if c_xyz != self.chunk_at_player {
@@ -144,7 +185,7 @@ impl<'a> System<'a> for ChunkLoading {
 
                             // Scale the input for the noise function
                             let (xf, zf) = ((x + b_x as i32) as f64 / 64.0, (z + b_z as i32) as f64 / 64.0);
-                            let y = self.ss.get(Point2::from([xf, zf]));
+                            let y = self.noise_fn.get(Point2::from([xf, zf]));
                             let y = (16.0 * (y + 10.0)) as u32;
 
                             // Ground layers
@@ -206,6 +247,10 @@ impl<'a> System<'a> for ChunkLoading {
 
                 let new_chunks = visited.difference(&self.loaded_chunks);
                 self.chunks_to_load.extend(new_chunks);
+                // for &chunk in new_chunks {
+                //     self.chunks_to_load.push_back(chunk);
+                // }
+                // self.chunks_to_load.extend(new_chunks);
                 self.loaded_chunks = visited;
 
                 println!("terrain gen\t{:#?}", Instant::now().duration_since(now));
