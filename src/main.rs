@@ -146,7 +146,7 @@ fn main() {
         .with(PlayerState::new())
         .with(Interpolator::new(
             1.0 / PHYSICS_TICKRATE,
-            PlayerPhysicsState::new_at_position(vec3(0.0f32, 200.0, 0.0)),
+            PlayerPhysicsState::new_at_position(vec3(8.0f32, 200.0, 8.0)),
         ))
         .with(Inventory::new())
         .with(MainHand::new())

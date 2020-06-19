@@ -2,8 +2,11 @@ use bit_vec::BitVec;
 use rand::{random, Rng};
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
+use std::ptr::null;
 
 use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
+use crate::types::TexturePack;
+use crate::shapes::write_unit_cube_to_ptr;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {
@@ -25,6 +28,7 @@ pub enum BlockID {
 }
 
 impl BlockID {
+    #[inline]
     pub fn is_air(&self) -> bool {
         self == &BlockID::Air
     }
@@ -187,13 +191,16 @@ impl ChunkColumn {
         }
     }
 
+    // #[inline]
     pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
         self.chunks[(y / 16) as usize].set_block(block, x, y % 16, z);
     }
 }
 
 pub struct Chunk {
+    pub is_rendered: bool,
     pub blocks: [BlockID; CHUNK_VOLUME as usize],
+    pub number_of_blocks: u32,
     pub active_faces: BitVec,
     pub ao_vertices: [[[u8; 4]; 6]; CHUNK_VOLUME as usize],
     pub needs_complete_rebuild: bool,
@@ -219,7 +226,9 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Self {
+            is_rendered: false,
             blocks: [block; CHUNK_VOLUME as usize],
+            number_of_blocks: 16 * 16 * 16,
             active_faces: BitVec::from_elem(6 * CHUNK_VOLUME as usize, false),
             ao_vertices: [[[0; 4]; 6]; CHUNK_VOLUME as usize],
             needs_complete_rebuild: true,
@@ -240,6 +249,7 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Self {
+            is_rendered: false,
             blocks: {
                 let mut blocks = [BlockID::Air; CHUNK_VOLUME as usize];
                 for i in 0..blocks.len() {
@@ -247,6 +257,7 @@ impl Chunk {
                 }
                 blocks
             },
+            number_of_blocks: 16 * 16 * 16,
             active_faces: BitVec::from_elem(6 * CHUNK_VOLUME as usize, false),
             ao_vertices: [[[0; 4]; 6]; CHUNK_VOLUME as usize],
             needs_complete_rebuild: true,
@@ -271,7 +282,69 @@ impl Chunk {
     /// The coordinates must be within the chunk size
     #[inline]
     pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
-        self.blocks[Chunk::chunk_coords_to_array_index(x, y, z)] = block;
+        let index = Chunk::chunk_coords_to_array_index(x, y, z);
+        if !self.blocks[index].is_air() && self.blocks[index].is_air() {
+            self.number_of_blocks -= 1;
+        } else if self.blocks[index].is_air() && !self.blocks[index].is_air() {
+            self.number_of_blocks += 1;
+        }
+        self.blocks[index] = block;
+    }
+
+    pub fn unload_from_gpu(&mut self) {
+        gl_call!(gl::NamedBufferData(self.vbo,
+                0,
+                null(),
+                gl::DYNAMIC_DRAW));
+    }
+
+    pub fn upload_to_gpu(&mut self, texture_pack: &TexturePack) {
+        let n_visible_faces = self.active_faces.iter().fold(0, |acc, b| acc + b as i32);
+        if n_visible_faces == 0 {
+            return;
+        }
+
+        // Initialize the VBO
+        gl_call!(gl::NamedBufferData(self.vbo,
+                (6 * 10 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                null(),
+                gl::DYNAMIC_DRAW));
+
+        // Map VBO to virtual memory
+        let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(self.vbo, gl::WRITE_ONLY)) as *mut f32;
+        let mut vbo_offset = 0;
+
+        self.vertices_drawn = 0;
+        let sides_vec = &self.active_faces;
+        let ao_vec = &self.ao_vertices;
+        let mut j = 0;
+
+        for (x, y, z) in BlockIterator::new() {
+            let block = self.get_block(x, y, z);
+            if block != BlockID::Air {
+                let active_sides = [
+                    sides_vec[6 * j],
+                    sides_vec[6 * j + 1],
+                    sides_vec[6 * j + 2],
+                    sides_vec[6 * j + 3],
+                    sides_vec[6 * j + 4],
+                    sides_vec[6 * j + 5],
+                ];
+
+                let ao_block = ao_vec[j];
+
+                let uvs = texture_pack.get(&block).unwrap().clone();
+                let uvs = uvs.get_uv_of_every_face();
+
+                let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides, ao_block) };
+                // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
+                // gl_call!(gl::NamedBufferSubData(self.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
+                self.vertices_drawn += copied_vertices;
+                vbo_offset += copied_vertices as isize * 10; // 5 floats per vertex
+            }
+            j += 1;
+        }
+        gl_call!(gl::UnmapNamedBuffer(self.vbo));
     }
 }
 

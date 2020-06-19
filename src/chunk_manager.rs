@@ -1,13 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::ptr::null;
 
 use nalgebra::Matrix4;
 use nalgebra_glm::{Mat4, vec3};
 
 use crate::ambient_occlusion::compute_ao_of_block;
-use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
+use crate::chunk::{BlockID, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
-use crate::shapes::write_unit_cube_to_ptr;
 use crate::types::TexturePack;
 
 pub const CHUNK_SIZE: u32 = 16;
@@ -49,7 +47,7 @@ impl ChunkManager {
         }
     }
 
-    pub fn remove_chunk(&mut self, xz: &(i32, i32)) {
+    pub fn remove_chunk_column(&mut self, xz: &(i32, i32)) {
         self.loaded_chunk_columns.remove(&xz);
     }
 
@@ -222,57 +220,6 @@ impl ChunkManager {
         chunk.ao_vertices[array_index] = block_ao;
     }
 
-    pub fn upload_chunk_to_gpu(&mut self, c_x: i32, c_y: i32, c_z: i32, texture_pack: &TexturePack) {
-        let mut chunk = self.get_chunk_mut(c_x, c_y, c_z).unwrap();
-
-        let n_visible_faces = chunk.active_faces.iter().fold(0, |acc, b| acc + b as i32);
-        if n_visible_faces == 0 {
-            return;
-        }
-
-        // Initialize the VBO
-        gl_call!(gl::NamedBufferData(chunk.vbo,
-                (6 * 10 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
-                null(),
-                gl::DYNAMIC_DRAW));
-
-        // Map VBO to virtual memory
-        let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(chunk.vbo, gl::WRITE_ONLY)) as *mut f32;
-        let mut vbo_offset = 0;
-
-        chunk.vertices_drawn = 0;
-        let sides_vec = &chunk.active_faces;
-        let ao_vec = &chunk.ao_vertices;
-        let mut j = 0;
-
-        for (x, y, z) in BlockIterator::new() {
-            let block = chunk.get_block(x, y, z);
-            if block != BlockID::Air {
-                let active_sides = [
-                    sides_vec[6 * j],
-                    sides_vec[6 * j + 1],
-                    sides_vec[6 * j + 2],
-                    sides_vec[6 * j + 3],
-                    sides_vec[6 * j + 4],
-                    sides_vec[6 * j + 5],
-                ];
-
-                let ao_block = ao_vec[j];
-
-                let uvs = texture_pack.get(&block).unwrap().clone();
-                let uvs = uvs.get_uv_of_every_face();
-
-                let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides, ao_block) };
-                // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
-                // gl_call!(gl::NamedBufferSubData(chunk.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
-                chunk.vertices_drawn += copied_vertices;
-                vbo_offset += copied_vertices as isize * 10; // 5 floats per vertex
-            }
-            j += 1;
-        }
-        gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
-    }
-
     pub fn rebuild_dirty_chunks(&mut self, uv_map: &TexturePack) {
         let mut changelist_per_chunk: HashMap<(i32, i32, i32), Vec<(u32, u32, u32)>> = HashMap::new();
         for &change in &self.block_changelist {
@@ -304,7 +251,7 @@ impl ChunkManager {
             for &(b_x, b_y, b_z) in dirty_blocks {
                 self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
             }
-            self.upload_chunk_to_gpu(c_x, c_y, c_z, &uv_map);
+            self.get_chunk_mut(c_x, c_y, c_z).unwrap().upload_to_gpu(&uv_map);
         }
     }
 
@@ -323,7 +270,7 @@ impl ChunkManager {
         for ((x, z), chunk_column) in &self.loaded_chunk_columns {
             for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
                 // Skip rendering the chunk if there is nothing to draw
-                if chunk.vertices_drawn == 0 {
+                if !chunk.is_rendered || chunk.vertices_drawn == 0 {
                     continue;
                 }
                 let model_matrix = {
