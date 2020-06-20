@@ -32,6 +32,7 @@ impl BlockID {
     pub fn is_air(&self) -> bool {
         self == &BlockID::Air
     }
+    #[inline]
     pub fn is_transparent(&self) -> bool {
         match self {
             &BlockID::Air |
@@ -40,6 +41,7 @@ impl BlockID {
             _ => false
         }
     }
+    #[inline]
     pub fn is_transparent_no_leaves(&self) -> bool {
         match self {
             &BlockID::Air |

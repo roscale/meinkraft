@@ -215,41 +215,40 @@ impl ChunkManager {
 
         let mut this_column = self.loaded_chunk_columns.get(&(c_x, c_z)).unwrap().write();
 
-
-        fn block_at(chunk: &Chunk, neighbourhood: &[Option<RwLockReadGuard<Box<ChunkColumn>>>; 9], c_x: i32, c_y: i32, c_z: i32, x: i32, y: i32, z: i32) -> BlockID {
+        #[inline]
+        fn block_at(column: &ChunkColumn, neighbourhood: &[Option<RwLockReadGuard<Box<ChunkColumn>>>; 9], c_x: i32, c_y: i32, c_z: i32, w_x: i32, w_y: i32, w_z: i32) -> BlockID {
             let to_index = |x: i32, z: i32| -> usize {
                 3 * (x - c_x + 1) as usize + (z - c_z + 1) as usize
             };
 
-            let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(x, y, z);
+            let (c_x_n, c_y_n, c_z_n, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(w_x, w_y, w_z);
 
-            let chunk = if let Some(neighbour_column) = &neighbourhood[to_index(c_x, c_z)] {
-                // println!("{:?}", (c_x, c_y, c_z));
-                &neighbour_column.chunks[c_y as usize]
+            if c_x == c_x_n && c_z == c_z_n {
+                column.chunks[c_y_n as usize].get_block(b_x, b_y, b_z)
             } else {
-                &chunk
-            };
-            chunk.get_block(b_x, b_y, b_z)
+                neighbourhood[to_index(c_x_n, c_z_n)].as_ref().unwrap().chunks[c_y_n as usize].get_block(b_x, b_y, b_z)
+            }
         };
 
-        fn active_faces(chunk: &Chunk, neighbourhood: &[Option<RwLockReadGuard<Box<ChunkColumn>>>; 9], c_x: i32, c_y: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
-            let right = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x + 1, y, z).is_transparent();
-            let left = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x - 1, y, z).is_transparent();
-            let top = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y + 1, z).is_transparent();
-            let bottom = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y - 1, z).is_transparent();
-            let front = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y, z + 1).is_transparent();
-            let back = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y, z - 1).is_transparent();
+        #[inline]
+        fn active_faces(column: &ChunkColumn, neighbourhood: &[Option<RwLockReadGuard<Box<ChunkColumn>>>; 9], c_x: i32, c_y: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
+            let right = block_at(&column, &neighbourhood, c_x, c_y, c_z, x + 1, y, z).is_transparent();
+            let left = block_at(&column, &neighbourhood, c_x, c_y, c_z, x - 1, y, z).is_transparent();
+            let top = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y + 1, z).is_transparent();
+            let bottom = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y - 1, z).is_transparent();
+            let front = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y, z + 1).is_transparent();
+            let back = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y, z - 1).is_transparent();
             [right, left, top, bottom, front, back]
         };
 
         for (b_x, b_y, b_z) in BlockIterator::new() {
             if this_column.chunks[c_y as usize].get_block(b_x, b_y, b_z) == BlockID::Air {
-                return;
+                continue;
             }
             let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
             // let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(w_x + 1, w_y, w_z);
 
-            let af = active_faces(&this_column.chunks[c_y as usize], &neighbourhood, c_x, c_y, c_z, w_x, w_y, w_z);
+            let af = active_faces(&this_column, &neighbourhood, c_x, c_y, c_z, w_x, w_y, w_z);
             let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
             // let mut chunk = this_column.chunks[c_y as usize];
 
@@ -262,6 +261,14 @@ impl ChunkManager {
             this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 4, af[4]);
             this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 5, af[5]);
 
+
+            // Ambient Occlusion
+
+            let block_ao = compute_ao_of_block(&|rx: i32, ry: i32, rz: i32| {
+                !block_at(&this_column, &neighbourhood, c_x, c_y, c_z, w_x + rx, w_y + ry, w_z + rz).is_transparent_no_leaves()
+            });
+
+            this_column.chunks[c_y as usize].ao_vertices[array_index] = block_ao;
             // dbg!(af);
             // this_column.chunks[c_y as usize].active_faces[]
 

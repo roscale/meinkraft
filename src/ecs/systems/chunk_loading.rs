@@ -155,7 +155,7 @@ impl ChunkLoading {
     }
 }
 
-const RENDER_DISTANCE: i32 = 5;
+const RENDER_DISTANCE: i32 = 24;
 
 impl<'a> System<'a> for ChunkLoading {
     type SystemData = (
@@ -353,7 +353,7 @@ impl<'a> System<'a> for ChunkLoading {
                 //     chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
                 // }
                 chunk_manager.update_all_blocks(c_x, c_y, c_z);
-                println!("AO & face occlusion {:?}\t{:#?}", (c_x, c_y, c_z), Instant::now().duration_since(now));
+                // println!("AO & face occlusion {:?}\t{:#?}", (c_x, c_y, c_z), Instant::now().duration_since(now));
 
                 let mut chunk = chunk_manager.get_chunk_mut(c_x, c_y, c_z).unwrap();
                 chunk.upload_to_gpu(&texture_pack);
