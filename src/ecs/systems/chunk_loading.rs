@@ -11,9 +11,14 @@ use crate::types::TexturePack;
 use std::time::Instant;
 use bit_vec::BitVec;
 use num_traits::abs;
+use rayon::prelude::*;
+use itertools::Itertools;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 pub struct ChunkLoading {
     noise_fn: SuperSimplex,
+    chunk_column_pool: Vec<Arc<RwLock<Box<ChunkColumn>>>>,
     loaded_columns: Vec<(i32, i32)>,
     loaded_chunks: Vec<(i32, i32, i32)>,
     chunks_to_load: VecDeque<(i32, i32, i32)>,
@@ -24,10 +29,25 @@ impl ChunkLoading {
     pub fn new() -> Self {
         Self {
             noise_fn: SuperSimplex::new(),
+            chunk_column_pool: Vec::new(),
             loaded_columns: Vec::new(),
             loaded_chunks: Vec::new(),
             chunks_to_load: VecDeque::new(),
             chunk_at_player: (-100, -100, -100),
+        }
+    }
+
+    fn allocate_chunk_column(&mut self) -> Arc<RwLock<Box<ChunkColumn>>> {
+        match self.chunk_column_pool.pop() {
+            Some(mut column) => {
+                for chunk in &mut column.write().chunks {
+                    chunk.reset();
+                }
+                column
+            },
+            None => {
+                Arc::new(RwLock::new(Box::new(ChunkColumn::new())))
+            }
         }
     }
 
@@ -183,7 +203,7 @@ impl<'a> System<'a> for ChunkLoading {
                 });
 
                 for &(x, y, z) in old_chunks {
-                    if let Some(chunk) = chunk_manager.get_chunk_mut(x, y, z) {
+                    if let Some(mut chunk) = chunk_manager.get_chunk_mut(x, y, z) {
                         chunk.unload_from_gpu();
                         chunk.is_rendered = false;
                     }
@@ -193,83 +213,118 @@ impl<'a> System<'a> for ChunkLoading {
                 let old_columns = self.loaded_columns.iter().filter(|(x, z)| {
                     abs(x - self.chunk_at_player.0) +
                         abs(z - self.chunk_at_player.2) > RENDER_DISTANCE + 2
-                });
+                }).collect_vec();
 
                 for column in old_columns {
-                    chunk_manager.remove_chunk_column(column);
+                    if let Some(column) = chunk_manager.remove_chunk_column(column) {
+                        self.chunk_column_pool.push(column);
+                    }
                 }
-
-                // Insert new chunk columns
-                let new_columns = visited_columns.iter().filter(|(x, z)| {
-                    abs(x - previous_chunk_at_player.0)
-                        + abs(z - previous_chunk_at_player.2) > RENDER_DISTANCE + 2
-                });
 
                 // Generate terrain
                 let now = Instant::now();
-                for &(x, z) in new_columns {
-                    let mut column = Box::new(ChunkColumn::new());
 
-                    for b_x in 0..16 {
-                        for b_z in 0..16 {
-                            let x = 16 * x;
-                            let z = 16 * z;
+                let new_chunks = visited_columns
+                    .iter()
+                    .filter(|(x, z)| {
+                        abs(x - previous_chunk_at_player.0)
+                            + abs(z - previous_chunk_at_player.2) > RENDER_DISTANCE + 2
+                    });
 
-                            // Scale the input for the noise function
-                            let (xf, zf) = ((x + b_x as i32) as f64 / 64.0, (z + b_z as i32) as f64 / 64.0);
-                            let y = self.noise_fn.get(Point2::from([xf, zf]));
-                            let y = (16.0 * (y + 10.0)) as u32;
-                            // let y = 195;
+                let mut vec = Vec::new();
+                for &(x, z) in new_chunks {
+                    vec.push((x, z, self.allocate_chunk_column()));
+                }
 
-                            // Ground layers
-                            column.set_block(BlockID::GrassBlock, b_x, y, b_z);
-                            column.set_block(BlockID::Dirt, b_x, y - 1, b_z);
-                            column.set_block(BlockID::Dirt, b_x, y - 2, b_z);
-                            column.set_block(BlockID::Dirt, b_x, y - 3, b_z);
-                            column.set_block(BlockID::Dirt, b_x, y - 4, b_z);
-                            column.set_block(BlockID::Dirt, b_x, y - 5, b_z);
+                println!("terrain gen\t{:#?}", Instant::now().duration_since(now));
 
-                            for y in 1..y - 5 {
-                                column.set_block(BlockID::Stone, b_x, y, b_z);
-                            }
-                            column.set_block(BlockID::Bedrock, b_x, 0, b_z);
+                let now = Instant::now();
 
-                            // Trees
-                            // if random::<u32>() % 100 < 1 {
-                            //     let h = 5;
-                            //     for i in y + 1..y + 1 + h {
-                            //         chunk_manager.set_block(BlockID::OakLog, b_x, i, b_z);
-                            //     }
-                            //
-                            //     for yy in y + h - 2..=y + h - 1 {
-                            //         for xx in b_x - 2..=b_x + 2 {
-                            //             for zz in b_z - 2..=b_z + 2 {
-                            //                 if xx != b_x || zz != b_z {
-                            //                     chunk_manager.set_block(BlockID::OakLeaves, xx, yy, zz);
-                            //                 }
-                            //             }
-                            //         }
-                            //     }
-                            //
-                            //     for xx in b_x - 1..=b_x + 1 {
-                            //         for zz in b_z - 1..=b_z + 1 {
-                            //             if xx != b_x || zz != b_z {
-                            //                 chunk_manager.set_block(BlockID::OakLeaves, xx, y + h, zz);
-                            //             }
-                            //         }
-                            //     }
-                            //
-                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z);
-                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x + 1, y + h + 1, b_z);
-                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x - 1, y + h + 1, b_z);
-                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z + 1);
-                            //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z - 1);
-                            // }
-                        };
-                    }
+                // Insert new chunk columns
+                vec
+                    .par_iter_mut()
+                    .for_each(|(x, z, column)| {
+                        let mut column = column.write();
+
+                        let x = *x;
+                        let z = *z;
+                        // eprintln!("test");
+                        // let mut column = Box::new(ChunkColumn::new());
+                        //
+                        for b_x in 0..16 {
+                            for b_z in 0..16 {
+                                let x = 16 * x;
+                                let z = 16 * z;
+
+                                // Scale the input for the noise function
+                                let (xf, zf) = ((x + b_x as i32) as f64 / 64.0, (z + b_z as i32) as f64 / 64.0);
+                                let y = self.noise_fn.get(Point2::from([xf, zf]));
+                                let y = (16.0 * (y + 10.0)) as u32;
+                                // let y = 195;
+
+                                // Ground layers
+                                column.set_block(BlockID::GrassBlock, b_x, y, b_z);
+                                column.set_block(BlockID::Dirt, b_x, y - 1, b_z);
+                                column.set_block(BlockID::Dirt, b_x, y - 2, b_z);
+                                column.set_block(BlockID::Dirt, b_x, y - 3, b_z);
+                                column.set_block(BlockID::Dirt, b_x, y - 4, b_z);
+                                column.set_block(BlockID::Dirt, b_x, y - 5, b_z);
+
+                                for y in 1..y - 5 {
+                                    column.set_block(BlockID::Stone, b_x, y, b_z);
+                                }
+                                column.set_block(BlockID::Bedrock, b_x, 0, b_z);
+
+                                // Trees
+                                // if random::<u32>() % 100 < 1 {
+                                //     let h = 5;
+                                //     for i in y + 1..y + 1 + h {
+                                //         chunk_manager.set_block(BlockID::OakLog, b_x, i, b_z);
+                                //     }
+                                //
+                                //     for yy in y + h - 2..=y + h - 1 {
+                                //         for xx in b_x - 2..=b_x + 2 {
+                                //             for zz in b_z - 2..=b_z + 2 {
+                                //                 if xx != b_x || zz != b_z {
+                                //                     chunk_manager.set_block(BlockID::OakLeaves, xx, yy, zz);
+                                //                 }
+                                //             }
+                                //         }
+                                //     }
+                                //
+                                //     for xx in b_x - 1..=b_x + 1 {
+                                //         for zz in b_z - 1..=b_z + 1 {
+                                //             if xx != b_x || zz != b_z {
+                                //                 chunk_manager.set_block(BlockID::OakLeaves, xx, y + h, zz);
+                                //             }
+                                //         }
+                                //     }
+                                //
+                                //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z);
+                                //     chunk_manager.set_block(BlockID::OakLeaves, b_x + 1, y + h + 1, b_z);
+                                //     chunk_manager.set_block(BlockID::OakLeaves, b_x - 1, y + h + 1, b_z);
+                                //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z + 1);
+                                //     chunk_manager.set_block(BlockID::OakLeaves, b_x, y + h + 1, b_z - 1);
+                                // }
+                            };
+                        }
+                        // // chunk_manager.add_chunk_column((x, z), column);
+                        // // (x, z, column)
+                    });
+
+                for (x, z, column) in vec {
                     chunk_manager.add_chunk_column((x, z), column);
                 }
-                println!("terrain gen\t{:#?}", Instant::now().duration_since(now));
+
+                println!("what \t{:#?}", Instant::now().duration_since(now));
+                // .for_each(|(x, z, column)| {
+                    //     // dbg!((x, z));
+                    //     // chunk_manager.add_chunk_column((x, z), column);
+                    // });
+
+
+
+
 
                 // Add new chunks to the loading queue
                 let new_chunks = visited_chunks.iter().filter(|c| {

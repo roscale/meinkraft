@@ -221,9 +221,24 @@ impl Chunk {
         Self::empty()
     }
 
+    pub fn reset(&mut self) {
+        self.is_rendered = false;
+        self.blocks = [BlockID::Air; CHUNK_VOLUME as usize];
+        self.number_of_blocks = 16 * 16 * 16;
+        self.active_faces = BitVec::from_elem(6 * CHUNK_VOLUME as usize, false);
+        self.ao_vertices = [[[0; 4]; 6]; CHUNK_VOLUME as usize];
+        self.needs_complete_rebuild = true;
+
+        let (vao, vbo) = create_vao_vbo();
+        self.vao = vao;
+        self.vbo = vbo;
+        self.vertices_drawn = 0;
+    }
+
     /// Creates a chunk where every block is the same
     pub fn full_of_block(block: BlockID) -> Self {
         let (vao, vbo) = create_vao_vbo();
+        // let (vao, vbo) = (0, 0);
 
         Self {
             is_rendered: false,
