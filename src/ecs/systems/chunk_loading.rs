@@ -349,9 +349,10 @@ impl<'a> System<'a> for ChunkLoading {
             }
 
             if chunk_manager.get_chunk(c_x, c_y, c_z).is_some() {
-                for (b_x, b_y, b_z) in BlockIterator::new() {
-                    chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-                }
+                // for (b_x, b_y, b_z) in BlockIterator::new() {
+                //     chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
+                // }
+                chunk_manager.update_all_blocks(c_x, c_y, c_z);
                 println!("AO & face occlusion {:?}\t{:#?}", (c_x, c_y, c_z), Instant::now().duration_since(now));
 
                 let mut chunk = chunk_manager.get_chunk_mut(c_x, c_y, c_z).unwrap();

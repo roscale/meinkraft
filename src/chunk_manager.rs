@@ -9,6 +9,7 @@ use crate::shader_compilation::ShaderProgram;
 use crate::types::TexturePack;
 use std::sync::{Arc, RwLockWriteGuard};
 use parking_lot::{RwLock, RawRwLock, MappedRwLockWriteGuard, RwLockReadGuard, MappedRwLockReadGuard};
+use std::borrow::BorrowMut;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -200,41 +201,74 @@ impl ChunkManager {
             .is_some()
     }
 
-    // pub fn update_all_blocks<'a>(&'a self, c_x: i32, c_y: i32, c_z: i32) {
-    //     let to_index = |x: i32, z: i32| -> usize {
-    //         3 * (x - c_x + 1) as usize + (z - c_z + 1) as usize
-    //     };
-    //
-    //     let mut neighbourhood: [Option<RwLockReadGuard<'a, Box<ChunkColumn>>>; 9] = [None, None, None, None, None, None, None, None, None];
-    //     for x in -1..=1 {
-    //         for z in -1..=1 {
-    //             neighbourhood[3 * (x + 1) as usize + (z + 1) as usize] = if x == 0 && z == 0 {
-    //                 None
-    //             } else {
-    //                 Some(self.loaded_chunk_columns.get(&(c_x + x, c_z + z)).unwrap().read())
-    //             };
-    //         }
-    //     }
-    //
-    //     let this_column = self.loaded_chunk_columns.get(&(c_x, c_z)).unwrap().write();
-    //     let chunk = &mut this_column.chunks[c_y as usize];
-    //
-    //     for (b_x, b_y, b_z) in BlockIterator::new() {
-    //         if chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
-    //             return;
-    //         }
-    //         let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-    //         let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(w_x + 1, w_y, w_z);
-    //
-    //         let chunk = if let Some(neighbour_column) = neighbourhood[to_index(c_x, c_z)] {
-    //             &neighbour_column.chunks[c_y as usize]
-    //         } else {
-    //             chunk
-    //         };
-    //
-    //         chunk.get_block(b_x, b_y, b_z);
-    //     }
-    // }
+    pub fn update_all_blocks(&self, c_x: i32, c_y: i32, c_z: i32) {
+        let mut neighbourhood = [None, None, None, None, None, None, None, None, None];
+        for x in -1..=1 {
+            for z in -1..=1 {
+                neighbourhood[3 * (x + 1) as usize + (z + 1) as usize] = if x == 0 && z == 0 {
+                    None
+                } else {
+                    Some(self.loaded_chunk_columns.get(&(c_x + x, c_z + z)).unwrap().read())
+                };
+            }
+        }
+
+        let mut this_column = self.loaded_chunk_columns.get(&(c_x, c_z)).unwrap().write();
+
+
+        fn block_at(chunk: &Chunk, neighbourhood: &[Option<RwLockReadGuard<Box<ChunkColumn>>>; 9], c_x: i32, c_y: i32, c_z: i32, x: i32, y: i32, z: i32) -> BlockID {
+            let to_index = |x: i32, z: i32| -> usize {
+                3 * (x - c_x + 1) as usize + (z - c_z + 1) as usize
+            };
+
+            let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(x, y, z);
+
+            let chunk = if let Some(neighbour_column) = &neighbourhood[to_index(c_x, c_z)] {
+                // println!("{:?}", (c_x, c_y, c_z));
+                &neighbour_column.chunks[c_y as usize]
+            } else {
+                &chunk
+            };
+            chunk.get_block(b_x, b_y, b_z)
+        };
+
+        fn active_faces(chunk: &Chunk, neighbourhood: &[Option<RwLockReadGuard<Box<ChunkColumn>>>; 9], c_x: i32, c_y: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
+            let right = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x + 1, y, z).is_transparent();
+            let left = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x - 1, y, z).is_transparent();
+            let top = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y + 1, z).is_transparent();
+            let bottom = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y - 1, z).is_transparent();
+            let front = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y, z + 1).is_transparent();
+            let back = block_at(&chunk, &neighbourhood, c_x, c_y, c_z, x, y, z - 1).is_transparent();
+            [right, left, top, bottom, front, back]
+        };
+
+        for (b_x, b_y, b_z) in BlockIterator::new() {
+            if this_column.chunks[c_y as usize].get_block(b_x, b_y, b_z) == BlockID::Air {
+                return;
+            }
+            let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+            // let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(w_x + 1, w_y, w_z);
+
+            let af = active_faces(&this_column.chunks[c_y as usize], &neighbourhood, c_x, c_y, c_z, w_x, w_y, w_z);
+            let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
+            // let mut chunk = this_column.chunks[c_y as usize];
+
+            // drop(this_column);
+            // let mut this_column = self.loaded_chunk_columns.get(&(c_x, c_z)).unwrap().write();
+            this_column.chunks[c_y as usize].active_faces.set(6 * array_index, af[0]);
+            this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 1, af[1]);
+            this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 2, af[2]);
+            this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 3, af[3]);
+            this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 4, af[4]);
+            this_column.chunks[c_y as usize].active_faces.set(6 * array_index + 5, af[5]);
+
+            // dbg!(af);
+            // this_column.chunks[c_y as usize].active_faces[]
+
+            // let nearby_block = chunk.get_block(b_x, b_y, b_z);
+            // println!("{:?}", nearby_block);
+        }
+    }
 
     pub fn update_block(&mut self, c_x: i32, c_y: i32, c_z: i32, b_x: u32, b_y: u32, b_z: u32) {
         let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;

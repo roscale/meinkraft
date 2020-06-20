@@ -8,7 +8,7 @@ use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
 use crate::types::TexturePack;
 use crate::shapes::write_unit_cube_to_ptr;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {
     Air,
     Dirt,
