@@ -7,6 +7,8 @@ use crate::input::InputCache;
 use crate::inventory::Inventory;
 use crate::inventory::item::ItemStack;
 use crate::player::PlayerState;
+use std::sync::Arc;
+use parking_lot::RwLock;
 
 pub struct InventoryHandleInput;
 
@@ -23,7 +25,7 @@ impl<'a> System<'a> for InventoryHandleInput {
     type SystemData = (
         Entities<'a>,
         Read<'a, InputCache>,
-        Read<'a, ChunkManager>,
+        Read<'a, Arc<RwLock<ChunkManager>>>,
         ReadStorage<'a, PlayerState>,
         WriteStorage<'a, Inventory>,
         WriteStorage<'a, MainHandItemChanged>,
@@ -59,7 +61,7 @@ impl<'a> System<'a> for InventoryHandleInput {
                     }
                     WindowEvent::MouseButton(MouseButton::Button3, Action::Press, _) => {
                         if let Some(((x, y, z), _)) = player_state.targeted_block {
-                            if let Some(block) = chunk_manager.get_block(x, y, z) {
+                            if let Some(block) = chunk_manager.read().get_block(x, y, z) {
                                 inventory.slots[inventory.selected_hotbar_slot] = Some(ItemStack::new(1, block));
                                 f();
                             }

@@ -32,6 +32,10 @@ use crate::texture_pack::generate_array_texture;
 use crate::types::Shaders;
 use crate::window::create_window;
 use crate::ecs::systems::chunk_loading::ChunkLoading;
+use std::sync::Arc;
+use parking_lot::RwLock;
+use std::thread;
+use std::time::Duration;
 
 #[macro_use]
 pub mod debugging;
@@ -58,8 +62,28 @@ pub mod timer;
 pub mod particle_system;
 pub mod ecs;
 pub mod main_hand;
+use parking_lot::deadlock;
 
 fn main() {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                continue;
+            }
+
+            println!("{} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                println!("Deadlock #{}", i);
+                for t in threads {
+                    println!("Thread Id {:#?}", t.thread_id());
+                    println!("{:#?}", t.backtrace());
+                }
+            }
+        }
+    });
+
     pretty_env_logger::init();
 
     let mut world = World::new();
@@ -130,7 +154,7 @@ fn main() {
         shaders_resource.insert("hand_shader", ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag"));
         shaders_resource
     });
-    world.insert(ChunkManager::new());
+    world.insert(Arc::new(RwLock::new(ChunkManager::new())));
 
     {
         let gui_icons_texture = create_gui_icons_texture();

@@ -15,18 +15,32 @@ use rayon::prelude::*;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use std::thread;
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 pub struct ChunkLoading {
     noise_fn: SuperSimplex,
-    chunk_column_pool: Vec<Arc<RwLock<Box<ChunkColumn>>>>,
+    chunk_column_pool: Vec<Arc<ChunkColumn>>,
     loaded_columns: Vec<(i32, i32)>,
     loaded_chunks: Vec<(i32, i32, i32)>,
     chunks_to_load: VecDeque<(i32, i32, i32)>,
     chunk_at_player: (i32, i32, i32),
+
+    send_chunk_column: Sender<(i32, i32, Arc<ChunkColumn>)>,
+    receive_chunk_column: Receiver<(i32, i32, Arc<ChunkColumn>)>,
+
+    send_chunks: Sender<(i32, i32, i32)>,
+    receive_chunks: Receiver<(i32, i32, i32)>,
+    pool: rayon::ThreadPool,
+
 }
 
 impl ChunkLoading {
     pub fn new() -> Self {
+        let (tx, rx) = channel();
+        let (tx2, rx2) = channel();
+
+
         Self {
             noise_fn: SuperSimplex::new(),
             chunk_column_pool: Vec::new(),
@@ -34,19 +48,24 @@ impl ChunkLoading {
             loaded_chunks: Vec::new(),
             chunks_to_load: VecDeque::new(),
             chunk_at_player: (-100, -100, -100),
+            send_chunk_column: tx,
+            receive_chunk_column: rx,
+            send_chunks: tx2,
+            receive_chunks: rx2,
+            pool: rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap(),
         }
     }
 
-    fn allocate_chunk_column(&mut self) -> Arc<RwLock<Box<ChunkColumn>>> {
+    fn allocate_chunk_column(&mut self) -> Arc<ChunkColumn> {
         match self.chunk_column_pool.pop() {
             Some(mut column) => {
-                for chunk in &mut column.write().chunks {
+                for chunk in column.chunks.iter() {
                     chunk.reset();
                 }
                 column
             },
             None => {
-                Arc::new(RwLock::new(Box::new(ChunkColumn::new())))
+                Arc::new(ChunkColumn::new())
             }
         }
     }
@@ -155,12 +174,12 @@ impl ChunkLoading {
     }
 }
 
-const RENDER_DISTANCE: i32 = 24;
+const RENDER_DISTANCE: i32 = 5;
 
 impl<'a> System<'a> for ChunkLoading {
     type SystemData = (
         ReadStorage<'a, Interpolator<PlayerPhysicsState>>,
-        Write<'a, ChunkManager>,
+        Write<'a, Arc<RwLock<ChunkManager>>>,
         Read<'a, TexturePack>,
     );
 
@@ -170,7 +189,6 @@ impl<'a> System<'a> for ChunkLoading {
             mut chunk_manager,
             texture_pack,
         ) = data;
-
 
         for player_physics_state in (&player_physics_state).join() {
             let state = player_physics_state.get_latest_state();
@@ -203,9 +221,11 @@ impl<'a> System<'a> for ChunkLoading {
                 });
 
                 for &(x, y, z) in old_chunks {
-                    if let Some(mut chunk) = chunk_manager.get_chunk_mut(x, y, z) {
+                    let chunk_manager = chunk_manager.read();
+                    if let Some(column) = chunk_manager.get_column(x, z) {
+                        let chunk = column.get_chunk(y);
                         chunk.unload_from_gpu();
-                        chunk.is_rendered = false;
+                        *chunk.is_rendered.write() = false;
                     }
                 }
 
@@ -215,11 +235,14 @@ impl<'a> System<'a> for ChunkLoading {
                         abs(z - self.chunk_at_player.2) > RENDER_DISTANCE + 2
                 }).collect_vec();
 
+                let now = Instant::now();
                 for column in old_columns {
-                    if let Some(column) = chunk_manager.remove_chunk_column(column) {
+                    if let Some(column) = chunk_manager.read().remove_chunk_column(column) {
                         self.chunk_column_pool.push(column);
                     }
                 }
+                println!("Removing old columns\t{:#?}", Instant::now().duration_since(now));
+
 
                 // Generate terrain
                 let now = Instant::now();
@@ -240,14 +263,13 @@ impl<'a> System<'a> for ChunkLoading {
 
                 let now = Instant::now();
 
-                // Insert new chunk columns
-                vec
-                    .par_iter_mut()
-                    .for_each(|(x, z, column)| {
-                        let mut column = column.write();
+                let noise_fn = self.noise_fn.clone();
+                let tx = self.send_chunk_column.clone();
 
-                        let x = *x;
-                        let z = *z;
+                self.pool.spawn_fifo(move || {
+                    for (x, z, mut column) in vec {
+                        // let x = *x;
+                        // let z = *z;
                         // eprintln!("test");
                         // let mut column = Box::new(ChunkColumn::new());
                         //
@@ -258,7 +280,8 @@ impl<'a> System<'a> for ChunkLoading {
 
                                 // Scale the input for the noise function
                                 let (xf, zf) = ((x + b_x as i32) as f64 / 64.0, (z + b_z as i32) as f64 / 64.0);
-                                let y = self.noise_fn.get(Point2::from([xf, zf]));
+                                let y = 200.0;
+                                let y = noise_fn.get(Point2::from([xf, zf]));
                                 let y = (16.0 * (y + 10.0)) as u32;
                                 // let y = 195;
 
@@ -308,15 +331,30 @@ impl<'a> System<'a> for ChunkLoading {
                                 // }
                             };
                         }
+                        tx.send((x, z, column));
                         // // chunk_manager.add_chunk_column((x, z), column);
                         // // (x, z, column)
-                    });
+                    }
+                });
 
-                for (x, z, column) in vec {
-                    chunk_manager.add_chunk_column((x, z), column);
+                // handle.join();
+
+                // Insert new chunk columns
+                // vec
+                //     .par_iter_mut()
+                //     .for_each(|(x, z, column)| {
+                //     });
+
+                let now = Instant::now();
+                for (x, z, column) in self.receive_chunk_column.try_iter() {
+                    chunk_manager.read().add_chunk_column((x, z), column);
                 }
+                println!("Adding column {:?}", Instant::now().duration_since(now));
+                // for (x, z, column) in vec {
+                //     chunk_manager.add_chunk_column((x, z), column);
+                // }
 
-                println!("what \t{:#?}", Instant::now().duration_since(now));
+                // println!("what \t{:#?}", Instant::now().duration_since(now));
                 // .for_each(|(x, z, column)| {
                     //     // dbg!((x, z));
                     //     // chunk_manager.add_chunk_column((x, z), column);
@@ -340,26 +378,60 @@ impl<'a> System<'a> for ChunkLoading {
         }
 
 
-        if let Some((c_x, c_y, c_z)) = self.chunks_to_load.pop_front() {
-            let now = Instant::now();
-            if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
-                if chunk.number_of_blocks == 0 {
-                    return;
+        for &(c_x, c_y, c_z) in self.chunks_to_load.iter() {
+            let chunk_manager = Arc::clone(&chunk_manager);
+            let tx = self.send_chunks.clone();
+            self.pool.spawn_fifo(move || {
+                let chunk_manager = chunk_manager.read();
+                if let Some(column) = chunk_manager.get_column(c_x, c_z) {
+                    let chunk = column.get_chunk(c_y);
+                    if *chunk.number_of_blocks.read() == 0 {
+                        return;
+                    }
+                    chunk_manager.update_all_blocks(c_x, c_y, c_z);
+                    tx.send((c_x, c_y, c_z));
                 }
-            }
-
-            if chunk_manager.get_chunk(c_x, c_y, c_z).is_some() {
-                // for (b_x, b_y, b_z) in BlockIterator::new() {
-                //     chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-                // }
-                chunk_manager.update_all_blocks(c_x, c_y, c_z);
-                // println!("AO & face occlusion {:?}\t{:#?}", (c_x, c_y, c_z), Instant::now().duration_since(now));
-
-                let mut chunk = chunk_manager.get_chunk_mut(c_x, c_y, c_z).unwrap();
-                chunk.upload_to_gpu(&texture_pack);
-                chunk.is_rendered = true;
-            }
+            });
         }
+        self.chunks_to_load.clear();
+
+        // if let Some((c_x, c_y, c_z)) = self.chunks_to_load.pop_front() {
+        //     let chunk_manager = Arc::clone(&chunk_manager);
+        //     let tx = self.send_chunks.clone();
+        //     thread::spawn(move || {
+        //         let now = Instant::now();
+        //         if let Some(chunk) = chunk_manager.read().get_chunk(c_x, c_y, c_z) {
+        //             if chunk.number_of_blocks == 0 {
+        //                 return;
+        //             }
+        //         }
+        //
+        //         if chunk_manager.read().get_chunk(c_x, c_y, c_z).is_some() {
+        //             // for (b_x, b_y, b_z) in BlockIterator::new() {
+        //             //     chunk_manager.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
+        //             // }
+        //             chunk_manager.write().update_all_blocks(c_x, c_y, c_z);
+        //             tx.send((c_x, c_y, c_z));
+        //             // println!("AO & face occlusion {:?}\t{:#?}", (c_x, c_y, c_z), Instant::now().duration_since(now));
+        //         }
+        //     });
+        // }
+
+
+        if let Ok((c_x, c_y, c_z)) = self.receive_chunks.try_recv() {
+            let now = Instant::now();
+
+            let chunk_manager = chunk_manager.read();
+            if let Some(column) = chunk_manager.get_column(c_x, c_z) {
+                let chunk = column.get_chunk(c_y);
+                chunk.upload_to_gpu(&texture_pack);
+                *chunk.is_rendered.write() = true;
+            }
+            // println!("Uploading to GPU\t{:#?}", Instant::now().duration_since(now));
+
+        }
+
+
 
         //     // dbg!(xyz);
         //

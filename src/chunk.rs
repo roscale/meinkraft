@@ -7,6 +7,7 @@ use std::ptr::null;
 use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
 use crate::types::TexturePack;
 use crate::shapes::write_unit_cube_to_ptr;
+use parking_lot::RwLock;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum BlockID {
@@ -97,13 +98,13 @@ fn create_vao_vbo() -> (u32, u32) {
 }
 
 pub struct ChunkColumn {
-    pub chunks: [Chunk; 16],
+    pub chunks: Box<[Chunk; 16]>,
 }
 
 impl ChunkColumn {
     pub fn new() -> Self {
         Self {
-            chunks: [
+            chunks: Box::new([
                 Chunk::empty(),
                 Chunk::empty(),
                 Chunk::empty(),
@@ -120,13 +121,13 @@ impl ChunkColumn {
                 Chunk::empty(),
                 Chunk::empty(),
                 Chunk::empty(),
-            ]
+            ])
         }
     }
 
     pub fn random() -> Self {
         Self {
-            chunks: [
+            chunks: Box::new([
                 Chunk::random(),
                 Chunk::random(),
                 Chunk::random(),
@@ -143,13 +144,13 @@ impl ChunkColumn {
                 Chunk::random(),
                 Chunk::random(),
                 Chunk::random(),
-            ],
+            ]),
         }
     }
 
     pub fn full_of_block(block: BlockID) -> Self {
         Self {
-            chunks: [
+            chunks: Box::new([
                 Chunk::full_of_block(block),
                 Chunk::full_of_block(block),
                 Chunk::full_of_block(block),
@@ -166,13 +167,13 @@ impl ChunkColumn {
                 Chunk::full_of_block(block),
                 Chunk::full_of_block(block),
                 Chunk::full_of_block(block),
-            ],
+            ]),
         }
     }
 
     pub fn alternating() -> Self {
         Self {
-            chunks: [
+            chunks: Box::new([
                 Chunk::full_of_block(BlockID::Dirt),
                 Chunk::full_of_block(BlockID::Cobblestone),
                 Chunk::full_of_block(BlockID::Dirt),
@@ -189,27 +190,31 @@ impl ChunkColumn {
                 Chunk::full_of_block(BlockID::Cobblestone),
                 Chunk::full_of_block(BlockID::Dirt),
                 Chunk::full_of_block(BlockID::Cobblestone),
-            ],
+            ]),
         }
     }
 
-    // #[inline]
-    pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
+    #[inline]
+    pub fn get_chunk(&self, y: i32) -> &Chunk {
+        &self.chunks[y as usize]
+    }
+
+    #[inline]
+    pub fn set_block(&self, block: BlockID, x: u32, y: u32, z: u32) {
         self.chunks[(y / 16) as usize].set_block(block, x, y % 16, z);
     }
 }
 
 pub struct Chunk {
-    pub is_rendered: bool,
-    pub blocks: [BlockID; CHUNK_VOLUME as usize],
-    pub number_of_blocks: u32,
-    pub active_faces: BitVec,
-    pub ao_vertices: [[[u8; 4]; 6]; CHUNK_VOLUME as usize],
-    pub needs_complete_rebuild: bool,
+    pub is_rendered: RwLock<bool>,
+    pub blocks: RwLock<[BlockID; CHUNK_VOLUME as usize]>,
+    pub number_of_blocks: RwLock<u32>,
+    pub active_faces: RwLock<BitVec>,
+    pub ao_vertices: RwLock<[[[u8; 4]; 6]; CHUNK_VOLUME as usize]>,
 
-    pub vao: u32,
-    pub vbo: u32,
-    pub vertices_drawn: u32,
+    pub vao: RwLock<u32>,
+    pub vbo: RwLock<u32>,
+    pub vertices_drawn: RwLock<u32>,
 }
 
 impl Default for Chunk {
@@ -223,18 +228,17 @@ impl Chunk {
         Self::empty()
     }
 
-    pub fn reset(&mut self) {
-        self.is_rendered = false;
-        self.blocks = [BlockID::Air; CHUNK_VOLUME as usize];
-        self.number_of_blocks = 16 * 16 * 16;
-        self.active_faces = BitVec::from_elem(6 * CHUNK_VOLUME as usize, false);
-        self.ao_vertices = [[[0; 4]; 6]; CHUNK_VOLUME as usize];
-        self.needs_complete_rebuild = true;
+    pub fn reset(&self) {
+        *self.is_rendered.write() = false;
+        *self.blocks.write() = [BlockID::Air; CHUNK_VOLUME as usize];
+        *self.number_of_blocks.write() = 16 * 16 * 16;
+        *self.active_faces.write() = BitVec::from_elem(6 * CHUNK_VOLUME as usize, false);
+        *self.ao_vertices.write() = [[[0; 4]; 6]; CHUNK_VOLUME as usize];
 
         let (vao, vbo) = create_vao_vbo();
-        self.vao = vao;
-        self.vbo = vbo;
-        self.vertices_drawn = 0;
+        *self.vao.write() = vao;
+        *self.vbo.write() = vbo;
+        *self.vertices_drawn.write() = 0;
     }
 
     /// Creates a chunk where every block is the same
@@ -243,16 +247,15 @@ impl Chunk {
         // let (vao, vbo) = (0, 0);
 
         Self {
-            is_rendered: false,
-            blocks: [block; CHUNK_VOLUME as usize],
-            number_of_blocks: 16 * 16 * 16,
-            active_faces: BitVec::from_elem(6 * CHUNK_VOLUME as usize, false),
-            ao_vertices: [[[0; 4]; 6]; CHUNK_VOLUME as usize],
-            needs_complete_rebuild: true,
+            is_rendered: RwLock::new(false),
+            blocks: RwLock::new([block; CHUNK_VOLUME as usize]),
+            number_of_blocks: RwLock::new(16 * 16 * 16),
+            active_faces: RwLock::new(BitVec::from_elem(6 * CHUNK_VOLUME as usize, false)),
+            ao_vertices: RwLock::new([[[0; 4]; 6]; CHUNK_VOLUME as usize]),
 
-            vao,
-            vbo,
-            vertices_drawn: 0,
+            vao: RwLock::new(vao),
+            vbo: RwLock::new(vbo),
+            vertices_drawn: RwLock::new(0),
         }
     }
 
@@ -266,22 +269,21 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Self {
-            is_rendered: false,
-            blocks: {
+            is_rendered: RwLock::new(false),
+            blocks: RwLock::new({
                 let mut blocks = [BlockID::Air; CHUNK_VOLUME as usize];
                 for i in 0..blocks.len() {
                     blocks[i] = random::<BlockID>();
                 }
                 blocks
-            },
-            number_of_blocks: 16 * 16 * 16,
-            active_faces: BitVec::from_elem(6 * CHUNK_VOLUME as usize, false),
-            ao_vertices: [[[0; 4]; 6]; CHUNK_VOLUME as usize],
-            needs_complete_rebuild: true,
+            }),
+            number_of_blocks: RwLock::new(16 * 16 * 16),
+            active_faces: RwLock::new(BitVec::from_elem(6 * CHUNK_VOLUME as usize, false)),
+            ao_vertices: RwLock::new([[[0; 4]; 6]; CHUNK_VOLUME as usize]),
 
-            vao,
-            vbo,
-            vertices_drawn: 0,
+            vao: RwLock::new(vao),
+            vbo: RwLock::new(vbo),
+            vertices_drawn: RwLock::new(0),
         }
     }
 
@@ -292,48 +294,48 @@ impl Chunk {
 
     #[inline]
     pub fn get_block(&self, x: u32, y: u32, z: u32) -> BlockID {
-        self.blocks[Chunk::chunk_coords_to_array_index(x, y, z)]
+        self.blocks.read()[Chunk::chunk_coords_to_array_index(x, y, z)]
     }
 
     /// Sets a block at some given coordinates
     /// The coordinates must be within the chunk size
     #[inline]
-    pub fn set_block(&mut self, block: BlockID, x: u32, y: u32, z: u32) {
+    pub fn set_block(&self, block: BlockID, x: u32, y: u32, z: u32) {
         let index = Chunk::chunk_coords_to_array_index(x, y, z);
-        if !self.blocks[index].is_air() && self.blocks[index].is_air() {
-            self.number_of_blocks -= 1;
-        } else if self.blocks[index].is_air() && !self.blocks[index].is_air() {
-            self.number_of_blocks += 1;
+        if !self.blocks.read()[index].is_air() && self.blocks.read()[index].is_air() {
+            *self.number_of_blocks.write() -= 1;
+        } else if self.blocks.read()[index].is_air() && !self.blocks.read()[index].is_air() {
+            *self.number_of_blocks.write() += 1;
         }
-        self.blocks[index] = block;
+        self.blocks.write()[index] = block;
     }
 
-    pub fn unload_from_gpu(&mut self) {
-        gl_call!(gl::NamedBufferData(self.vbo,
+    pub fn unload_from_gpu(&self) {
+        gl_call!(gl::NamedBufferData(*self.vbo.read(),
                 0,
                 null(),
                 gl::DYNAMIC_DRAW));
     }
 
-    pub fn upload_to_gpu(&mut self, texture_pack: &TexturePack) {
-        let n_visible_faces = self.active_faces.iter().fold(0, |acc, b| acc + b as i32);
+    pub fn upload_to_gpu(&self, texture_pack: &TexturePack) {
+        let n_visible_faces = self.active_faces.read().iter().fold(0, |acc, b| acc + b as i32);
         if n_visible_faces == 0 {
             return;
         }
 
         // Initialize the VBO
-        gl_call!(gl::NamedBufferData(self.vbo,
+        gl_call!(gl::NamedBufferData(*self.vbo.read(),
                 (6 * 10 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
                 null(),
                 gl::DYNAMIC_DRAW));
 
         // Map VBO to virtual memory
-        let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(self.vbo, gl::WRITE_ONLY)) as *mut f32;
+        let vbo_ptr: *mut f32 = gl_call!(gl::MapNamedBuffer(*self.vbo.read(), gl::WRITE_ONLY)) as *mut f32;
         let mut vbo_offset = 0;
 
-        self.vertices_drawn = 0;
-        let sides_vec = &self.active_faces;
-        let ao_vec = &self.ao_vertices;
+        let mut vertices_drawn = 0;
+        let sides_vec = &self.active_faces.read();
+        let ao_vec = &self.ao_vertices.read();
         let mut j = 0;
 
         for (x, y, z) in BlockIterator::new() {
@@ -356,12 +358,13 @@ impl Chunk {
                 let copied_vertices = unsafe { write_unit_cube_to_ptr(vbo_ptr.offset(vbo_offset), x as f32, y as f32, z as f32, uvs, active_sides, ao_block) };
                 // let cube_array = unit_cube_array(x as f32, y as f32, z as f32, uv_bl, uv_tr, active_sides);
                 // gl_call!(gl::NamedBufferSubData(self.vbo, (i * std::mem::size_of::<f32>()) as isize, (cube_array.len() * std::mem::size_of::<f32>()) as isize, cube_array.as_ptr() as *mut c_void));
-                self.vertices_drawn += copied_vertices;
+                vertices_drawn += copied_vertices;
                 vbo_offset += copied_vertices as isize * 10; // 5 floats per vertex
             }
             j += 1;
         }
-        gl_call!(gl::UnmapNamedBuffer(self.vbo));
+        *self.vertices_drawn.write() = vertices_drawn;
+        gl_call!(gl::UnmapNamedBuffer(*self.vbo.read()));
     }
 }
 

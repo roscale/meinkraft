@@ -8,6 +8,8 @@ use crate::input::InputCache;
 use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
 use crate::timer::Timer;
+use std::sync::Arc;
+use parking_lot::RwLock;
 
 pub struct UpdatePlayerPhysics;
 
@@ -15,7 +17,7 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
     type SystemData = (
         Read<'a, Timer>,
         Read<'a, InputCache>,
-        Read<'a, ChunkManager>,
+        Read<'a, Arc<RwLock<ChunkManager>>>,
         WriteStorage<'a, Interpolator<PlayerPhysicsState>>,
         WriteStorage<'a, PlayerState>,
     );
@@ -45,7 +47,7 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
                     let mut player = player.clone();
                     let vy = vec3(0.0, player.velocity.y, 0.0);
                     player.aabb.ip_translate(&(vy * dt));
-                    let colliding_block = player.get_colliding_block_coords(&chunk_manager);
+                    let colliding_block = player.get_colliding_block_coords(&chunk_manager.read());
                     if let Some(colliding_block) = colliding_block {
                         player.separate_from_block(&vy, &colliding_block)
                     } else {
@@ -65,7 +67,7 @@ impl<'a> System<'a> for UpdatePlayerPhysics {
                 for v in separated_axis {
                     let bk = player.clone();
                     player.aabb.ip_translate(&(v * dt));
-                    let colliding_block = player.get_colliding_block_coords(&chunk_manager);
+                    let colliding_block = player.get_colliding_block_coords(&chunk_manager.read());
 
                     // Collision resolution
                     if let Some(colliding_block) = colliding_block {
