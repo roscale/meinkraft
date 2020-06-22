@@ -25,7 +25,7 @@ impl<'a> System<'a> for InventoryHandleInput {
     type SystemData = (
         Entities<'a>,
         Read<'a, InputCache>,
-        Read<'a, Arc<RwLock<ChunkManager>>>,
+        Read<'a, Arc<ChunkManager>>,
         ReadStorage<'a, PlayerState>,
         WriteStorage<'a, Inventory>,
         WriteStorage<'a, MainHandItemChanged>,
@@ -61,7 +61,7 @@ impl<'a> System<'a> for InventoryHandleInput {
                     }
                     WindowEvent::MouseButton(MouseButton::Button3, Action::Press, _) => {
                         if let Some(((x, y, z), _)) = player_state.targeted_block {
-                            if let Some(block) = chunk_manager.read().get_block(x, y, z) {
+                            if let Some(block) = chunk_manager.get_block(x, y, z) {
                                 inventory.slots[inventory.selected_hotbar_slot] = Some(ItemStack::new(1, block));
                                 f();
                             }

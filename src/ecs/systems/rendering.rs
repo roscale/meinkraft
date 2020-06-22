@@ -19,7 +19,7 @@ impl<'a> System<'a> for RenderChunks {
     type SystemData = (
         Read<'a, TexturePack>,
         ReadStorage<'a, PlayerState>,
-        Write<'a, Arc<RwLock<ChunkManager>>>,
+        Write<'a, Arc<ChunkManager>>,
         Write<'a, Shaders>,
     );
 
@@ -39,7 +39,7 @@ impl<'a> System<'a> for RenderChunks {
 
 
 
-        chunk_manager.read().rebuild_dirty_chunks(&texture_pack);
+        chunk_manager.rebuild_dirty_chunks(&texture_pack);
 
         let mut voxel_shader = shaders.get_mut("voxel_shader").unwrap();
         voxel_shader.use_program();
@@ -53,7 +53,6 @@ impl<'a> System<'a> for RenderChunks {
         for player_state in (&player_state).join() {
             voxel_shader.set_uniform_matrix4fv("view", player_state.view_matrix.as_ptr());
             voxel_shader.set_uniform_matrix4fv("projection", player_state.projection_matrix.as_ptr());
-            let chunk_manager = chunk_manager.read();
             chunk_manager.render_loaded_chunks(&mut voxel_shader);
         }
 
@@ -69,7 +68,7 @@ impl<'a> System<'a> for RenderParticles {
     type SystemData = (
         Read<'a, Timer>,
         ReadStorage<'a, PlayerState>,
-        Write<'a, Arc<RwLock<ChunkManager>>>,
+        Write<'a, Arc<ChunkManager>>,
         Write<'a, Shaders>,
         Write<'a, ParticleSystems>,
     );
@@ -90,7 +89,7 @@ impl<'a> System<'a> for RenderParticles {
 
         for player_state in (&player_state).join() {
             for particle_system in particle_systems.values_mut() {
-                particle_system.update_all_particles(global_timer.time(), &chunk_manager.read());
+                particle_system.update_all_particles(global_timer.time(), &chunk_manager);
                 particle_system.render_all_particles(&mut particle_shader, &player_state.view_matrix, &player_state.projection_matrix);
             }
         }

@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use nalgebra::Matrix4;
 use nalgebra_glm::{Mat4, vec3};
 
+use crate::constants::RENDER_DISTANCE;
 use crate::ambient_occlusion::compute_ao_of_block;
 use crate::chunk::{BlockID, Chunk, ChunkColumn, BlockIterator};
 use crate::shader_compilation::ShaderProgram;
@@ -13,6 +14,7 @@ use std::borrow::BorrowMut;
 use dashmap::{DashMap, ElementGuard};
 use std::mem::forget;
 use std::time::Instant;
+use owning_ref::OwningRef;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -34,6 +36,16 @@ impl ChunkManager {
 
     pub fn get_column(&self, x: i32, z: i32) -> Option<Arc<ChunkColumn>> {
         self.loaded_chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
+    }
+
+    pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<OwningRef<Arc<ChunkColumn>, Chunk>> {
+        if y < 0 || y >= 16 {
+            return None;
+        }
+        self.loaded_chunk_columns.get(&(x, z))
+            .map(|column| {
+                OwningRef::new(Arc::clone(column.value())).map(|column| column.get_chunk(y))
+            })
     }
 
     // pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
@@ -172,35 +184,32 @@ impl ChunkManager {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
 
-        match self.get_column(chunk_x, chunk_z) {
-            Some(col) => {
-                Some(col.get_chunk(chunk_y).get_block(block_x, block_y, block_z))
-            }
-            None => None
-        }
+        self.get_chunk(chunk_x, chunk_y, chunk_z)
+            .map(|chunk|
+                chunk.get_block(block_x, block_y, block_z))
     }
 
     /// Replaces the block at (x, y, z) with `block`.
     ///
     /// This function should be used for terrain generation because it does not
     /// modify the changelist.
-    pub fn set_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
+    pub fn set_block(&self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
 
-        match self.get_column(chunk_x, chunk_z) {
-            Some(col) => {
-                col.get_chunk(chunk_y).set_block(block, block_x, block_y, block_z);
+        match self.get_chunk(chunk_x, chunk_y, chunk_z) {
+            None => false,
+            Some(chunk) => {
+                chunk.set_block(block, block_x, block_y, block_z);
                 true
             }
-            None => false
         }
     }
 
     /// Like `set_block` but it modifies the changelist.
     ///
     /// Should be used when an entity (player, mob etc.) interacts with the world.
-    pub fn put_block(&mut self, block: BlockID, x: i32, y: i32, z: i32) {
+    pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) {
         if self.set_block(block, x, y, z) {
             self.block_changelist.write().insert((x, y, z));
         }
@@ -227,7 +236,7 @@ impl ChunkManager {
                 neighbourhood[3 * (x + 1) as usize + (z + 1) as usize] = if x == 0 && z == 0 {
                     None
                 } else {
-                    self.loaded_chunk_columns.get(&(c_x + x, c_z + z)).map(|column| Arc::clone(column.value()))
+                    self.get_column(c_x + x, c_z + z)
                 };
             }
         }
@@ -303,36 +312,21 @@ impl ChunkManager {
     }
 
     pub fn update_block(&self, c_x: i32, c_y: i32, c_z: i32, b_x: u32, b_y: u32, b_z: u32) {
-        let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
-        let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-
-        let active_faces_of_block = {
-            let column = self.get_column(c_x, c_z).unwrap();
-            let chunk = &column.get_chunk(c_y);
-            if chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
-                return;
-            }
-            self.get_active_faces_of_block(w_x, w_y, w_z)
-        };
-
-        {
-            let column = self.get_column(c_x, c_z).unwrap();
-            let chunk = column.get_chunk(c_y);
-            chunk.active_faces.write().set(6 * array_index, active_faces_of_block[0]);
-            chunk.active_faces.write().set(6 * array_index + 1, active_faces_of_block[1]);
-            chunk.active_faces.write().set(6 * array_index + 2, active_faces_of_block[2]);
-            chunk.active_faces.write().set(6 * array_index + 3, active_faces_of_block[3]);
-            chunk.active_faces.write().set(6 * array_index + 4, active_faces_of_block[4]);
-            chunk.active_faces.write().set(6 * array_index + 5, active_faces_of_block[5]);
+        let chunk = self.get_chunk(c_x, c_y, c_z).unwrap();
+        if chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
+            return;
         }
 
+        let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
+        let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
 
-        // chunk.active_faces.set(6 * array_index, true);
-        // chunk.active_faces.set(6 * array_index + 1, true);
-        // chunk.active_faces.set(6 * array_index + 2, true);
-        // chunk.active_faces.set(6 * array_index + 3, true);
-        // chunk.active_faces.set(6 * array_index + 4, true);
-        // chunk.active_faces.set(6 * array_index + 5, true);
+        let active_faces_of_block = self.get_active_faces_of_block(w_x, w_y, w_z);
+        chunk.active_faces.write().set(6 * array_index, active_faces_of_block[0]);
+        chunk.active_faces.write().set(6 * array_index + 1, active_faces_of_block[1]);
+        chunk.active_faces.write().set(6 * array_index + 2, active_faces_of_block[2]);
+        chunk.active_faces.write().set(6 * array_index + 3, active_faces_of_block[3]);
+        chunk.active_faces.write().set(6 * array_index + 4, active_faces_of_block[4]);
+        chunk.active_faces.write().set(6 * array_index + 5, active_faces_of_block[5]);
 
         // Ambient Occlusion
 
@@ -341,11 +335,7 @@ impl ChunkManager {
                 .filter(|b| !b.is_transparent_no_leaves())
                 .is_some()
         });
-
-        let column = self.get_column(c_x, c_z).unwrap();
-        let chunk = column.get_chunk(c_y);
-        chunk.ao_vertices.write()[array_index] = block_ao;
-        // chunk.ao_vertices[array_index] = [[0; 4]; 6];
+        self.get_chunk(c_x, c_y, c_z).unwrap().ao_vertices.write()[array_index] = block_ao;
     }
 
     pub fn rebuild_dirty_chunks(&self, uv_map: &TexturePack) {
@@ -373,10 +363,9 @@ impl ChunkManager {
         // self.fresh_chunk.clear();
 
         for (&(c_x, c_y, c_z), dirty_blocks) in &changelist_per_chunk {
-            match self.get_column(c_x, c_z) {
+            match self.get_chunk(c_x, c_y, c_z) {
                 None => continue,
-                Some(column) => {
-                    let chunk = column.get_chunk(c_y);
+                Some(chunk) => {
                     for &(b_x, b_y, b_z) in dirty_blocks {
                         self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
                     }

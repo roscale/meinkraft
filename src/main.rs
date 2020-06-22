@@ -154,7 +154,7 @@ fn main() {
         shaders_resource.insert("hand_shader", ShaderProgram::compile("src/shaders/hand.vert", "src/shaders/hand.frag"));
         shaders_resource
     });
-    world.insert(Arc::new(RwLock::new(ChunkManager::new())));
+    world.insert(Arc::new(ChunkManager::new()));
 
     {
         let gui_icons_texture = create_gui_icons_texture();
@@ -170,7 +170,7 @@ fn main() {
         .with(PlayerState::new())
         .with(Interpolator::new(
             1.0 / PHYSICS_TICKRATE,
-            PlayerPhysicsState::new_at_position(vec3(8.0f32, 200.0, 8.0)),
+            PlayerPhysicsState::new_at_position(vec3(8.0f32, 180.0, 8.0)),
         ))
         .with(Inventory::new())
         .with(MainHand::new())

@@ -1,22 +1,23 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use std::time::Instant;
 
+use bit_vec::BitVec;
+use itertools::Itertools;
 use noise::{NoiseFn, Point2, SuperSimplex};
+use num_traits::abs;
+use parking_lot::RwLock;
+use rayon::prelude::*;
 use specs::{Join, Read, ReadStorage, System, Write};
 
 use crate::chunk::{BlockID, BlockIterator, ChunkColumn};
 use crate::chunk_manager::ChunkManager;
+use crate::constants::{RENDER_DISTANCE, WORLD_GENERATION_THREAD_POOL_SIZE};
 use crate::physics::Interpolator;
 use crate::player::PlayerPhysicsState;
 use crate::types::TexturePack;
-use std::time::Instant;
-use bit_vec::BitVec;
-use num_traits::abs;
-use rayon::prelude::*;
-use itertools::Itertools;
-use parking_lot::RwLock;
-use std::sync::Arc;
-use std::thread;
-use std::sync::mpsc::{Receiver, Sender, channel};
 
 pub struct ChunkLoading {
     noise_fn: SuperSimplex,
@@ -40,7 +41,6 @@ impl ChunkLoading {
         let (tx, rx) = channel();
         let (tx2, rx2) = channel();
 
-
         Self {
             noise_fn: SuperSimplex::new(),
             chunk_column_pool: Vec::new(),
@@ -52,7 +52,7 @@ impl ChunkLoading {
             receive_chunk_column: rx,
             send_chunks: tx2,
             receive_chunks: rx2,
-            pool: rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap(),
+            pool: rayon::ThreadPoolBuilder::new().num_threads(*WORLD_GENERATION_THREAD_POOL_SIZE).build().unwrap(),
         }
     }
 
@@ -174,12 +174,10 @@ impl ChunkLoading {
     }
 }
 
-const RENDER_DISTANCE: i32 = 5;
-
 impl<'a> System<'a> for ChunkLoading {
     type SystemData = (
         ReadStorage<'a, Interpolator<PlayerPhysicsState>>,
-        Write<'a, Arc<RwLock<ChunkManager>>>,
+        Write<'a, Arc<ChunkManager>>,
         Read<'a, TexturePack>,
     );
 
@@ -221,9 +219,7 @@ impl<'a> System<'a> for ChunkLoading {
                 });
 
                 for &(x, y, z) in old_chunks {
-                    let chunk_manager = chunk_manager.read();
-                    if let Some(column) = chunk_manager.get_column(x, z) {
-                        let chunk = column.get_chunk(y);
+                    if let Some(chunk) = chunk_manager.get_chunk(x, y, z) {
                         chunk.unload_from_gpu();
                         *chunk.is_rendered.write() = false;
                     }
@@ -237,7 +233,7 @@ impl<'a> System<'a> for ChunkLoading {
 
                 let now = Instant::now();
                 for column in old_columns {
-                    if let Some(column) = chunk_manager.read().remove_chunk_column(column) {
+                    if let Some(column) = chunk_manager.remove_chunk_column(column) {
                         self.chunk_column_pool.push(column);
                     }
                 }
@@ -347,7 +343,7 @@ impl<'a> System<'a> for ChunkLoading {
 
                 let now = Instant::now();
                 for (x, z, column) in self.receive_chunk_column.try_iter() {
-                    chunk_manager.read().add_chunk_column((x, z), column);
+                    chunk_manager.add_chunk_column((x, z), column);
                 }
                 println!("Adding column {:?}", Instant::now().duration_since(now));
                 // for (x, z, column) in vec {
@@ -382,9 +378,7 @@ impl<'a> System<'a> for ChunkLoading {
             let chunk_manager = Arc::clone(&chunk_manager);
             let tx = self.send_chunks.clone();
             self.pool.spawn_fifo(move || {
-                let chunk_manager = chunk_manager.read();
-                if let Some(column) = chunk_manager.get_column(c_x, c_z) {
-                    let chunk = column.get_chunk(c_y);
+                if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
                     if *chunk.number_of_blocks.read() == 0 {
                         return;
                     }
@@ -421,9 +415,7 @@ impl<'a> System<'a> for ChunkLoading {
         if let Ok((c_x, c_y, c_z)) = self.receive_chunks.try_recv() {
             let now = Instant::now();
 
-            let chunk_manager = chunk_manager.read();
-            if let Some(column) = chunk_manager.get_column(c_x, c_z) {
-                let chunk = column.get_chunk(c_y);
+            if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
                 chunk.upload_to_gpu(&texture_pack);
                 *chunk.is_rendered.write() = true;
             }
