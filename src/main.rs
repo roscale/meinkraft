@@ -1,4 +1,5 @@
 #![feature(entry_insert)]
+#![feature(vec_remove_item)]
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]

@@ -17,10 +17,10 @@ pub const CROSSHAIR_SIZE: f32 = 40.0;
 pub const BLOCK_OUTLINE_WIDTH: f32 = 3.0;
 
 // Rendering
-pub const RENDER_DISTANCE: i32 = 12;
+pub const RENDER_DISTANCE: i32 = 5;
 lazy_static! {
-    // pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = num_cpus::get();
-    pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = 1;
+    pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = num_cpus::get();
+    // pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = 1;
 }
 // Input
 pub const MOUSE_SENSITIVITY_X: f32 = 0.5;

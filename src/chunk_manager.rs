@@ -22,7 +22,7 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 #[derive(Default)]
 pub struct ChunkManager {
-    loaded_chunk_columns: DashMap<(i32, i32), Arc<ChunkColumn>>,
+    pub loaded_chunk_columns: DashMap<(i32, i32), Arc<ChunkColumn>>,
     pub block_changelist: RwLock<HashSet<(i32, i32, i32)>>,
 }
 
