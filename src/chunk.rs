@@ -43,6 +43,18 @@ impl BlockID {
         }
     }
     #[inline]
+    pub fn is_opaque(&self) -> bool {
+        !self.is_transparent()
+    }
+    #[inline]
+    pub fn is_transparent_not_air(&self) -> bool {
+        match self {
+            &BlockID::OakLeaves |
+            &BlockID::Glass => true,
+            _ => false
+        }
+    }
+    #[inline]
     pub fn is_transparent_no_leaves(&self) -> bool {
         match self {
             &BlockID::Air |
@@ -208,7 +220,8 @@ impl ChunkColumn {
 pub struct Chunk {
     pub is_rendered: RwLock<bool>,
     pub blocks: RwLock<[BlockID; CHUNK_VOLUME as usize]>,
-    pub number_of_blocks: RwLock<u32>,
+    pub number_of_opaque_blocks: RwLock<u32>,
+    pub number_of_transparent_blocks: RwLock<u32>,
     pub active_faces: RwLock<BitVec>,
     pub ao_vertices: RwLock<[[[u8; 4]; 6]; CHUNK_VOLUME as usize]>,
 
@@ -229,27 +242,34 @@ impl Chunk {
     }
 
     pub fn reset(&self) {
+        self.unload_from_gpu();
         *self.is_rendered.write() = false;
         *self.blocks.write() = [BlockID::Air; CHUNK_VOLUME as usize];
-        *self.number_of_blocks.write() = 16 * 16 * 16;
+        *self.number_of_opaque_blocks.write() = 0;
+        *self.number_of_transparent_blocks.write() = 0;
         *self.active_faces.write() = BitVec::from_elem(6 * CHUNK_VOLUME as usize, false);
         *self.ao_vertices.write() = [[[0; 4]; 6]; CHUNK_VOLUME as usize];
-
-        let (vao, vbo) = create_vao_vbo();
-        *self.vao.write() = vao;
-        *self.vbo.write() = vbo;
         *self.vertices_drawn.write() = 0;
     }
 
     /// Creates a chunk where every block is the same
     pub fn full_of_block(block: BlockID) -> Self {
         let (vao, vbo) = create_vao_vbo();
-        // let (vao, vbo) = (0, 0);
+
+        let (opaque, transparent) = match block {
+            BlockID::Air => (0, 0),
+            block => if block.is_transparent() {
+                (0, 16 * 16 * 16)
+            } else {
+                (16 * 16 * 16, 0)
+            }
+        };
 
         Self {
             is_rendered: RwLock::new(false),
             blocks: RwLock::new([block; CHUNK_VOLUME as usize]),
-            number_of_blocks: RwLock::new(16 * 16 * 16),
+            number_of_opaque_blocks: RwLock::new(opaque),
+            number_of_transparent_blocks: RwLock::new(transparent),
             active_faces: RwLock::new(BitVec::from_elem(6 * CHUNK_VOLUME as usize, false)),
             ao_vertices: RwLock::new([[[0; 4]; 6]; CHUNK_VOLUME as usize]),
 
@@ -277,7 +297,8 @@ impl Chunk {
                 }
                 blocks
             }),
-            number_of_blocks: RwLock::new(16 * 16 * 16),
+            number_of_opaque_blocks: RwLock::new(16 * 16 * 16),
+            number_of_transparent_blocks: RwLock::new(0),
             active_faces: RwLock::new(BitVec::from_elem(6 * CHUNK_VOLUME as usize, false)),
             ao_vertices: RwLock::new([[[0; 4]; 6]; CHUNK_VOLUME as usize]),
 
@@ -285,6 +306,14 @@ impl Chunk {
             vbo: RwLock::new(vbo),
             vertices_drawn: RwLock::new(0),
         }
+    }
+
+    pub fn is_fully_opaque(&self) -> bool {
+        *self.number_of_opaque_blocks.read() == 16 * 16 * 16
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self.number_of_opaque_blocks.read() + *self.number_of_transparent_blocks.read() == 0
     }
 
     #[inline]
@@ -302,11 +331,30 @@ impl Chunk {
     #[inline]
     pub fn set_block(&self, block: BlockID, x: u32, y: u32, z: u32) {
         let index = Chunk::chunk_coords_to_array_index(x, y, z);
-        if !self.blocks.read()[index].is_air() && self.blocks.read()[index].is_air() {
-            *self.number_of_blocks.write() -= 1;
-        } else if self.blocks.read()[index].is_air() && !self.blocks.read()[index].is_air() {
-            *self.number_of_blocks.write() += 1;
+
+        let target = self.blocks.read()[index];
+        if target.is_air() {
+            if block.is_transparent_not_air() {
+                *self.number_of_transparent_blocks.write() += 1;
+            } else if block.is_opaque() {
+                *self.number_of_opaque_blocks.write() += 1;
+            }
+        } else if target.is_transparent_not_air() {
+            if block.is_air() {
+                *self.number_of_transparent_blocks.write() -= 1;
+            } else if block.is_opaque() {
+                *self.number_of_transparent_blocks.write() -= 1;
+                *self.number_of_opaque_blocks.write() += 1;
+            }
+        } else if target.is_opaque() {
+            if block.is_air() {
+                *self.number_of_opaque_blocks.write() -= 1;
+            } else if block.is_transparent_not_air() {
+                *self.number_of_transparent_blocks.write() += 1;
+                *self.number_of_opaque_blocks.write() -= 1;
+            }
         }
+
         self.blocks.write()[index] = block;
     }
 
