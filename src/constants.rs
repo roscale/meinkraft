@@ -20,7 +20,7 @@ pub const BLOCK_OUTLINE_WIDTH: f32 = 3.0;
 pub const RENDER_DISTANCE: i32 = 18;
 lazy_static! {
     pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = num_cpus::get();
-    // pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = 2;
+    // pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = 4;
 }
 // Input
 pub const MOUSE_SENSITIVITY_X: f32 = 0.5;

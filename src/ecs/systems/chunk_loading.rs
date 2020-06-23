@@ -19,13 +19,14 @@ use crate::physics::Interpolator;
 use crate::player::PlayerPhysicsState;
 use crate::types::TexturePack;
 use std::iter::FromIterator;
+use std::process::exit;
 
 pub struct ChunkLoading {
     noise_fn: SuperSimplex,
     chunk_column_pool: Arc<RwLock<Vec<Arc<ChunkColumn>>>>,
     loaded_columns: Vec<(i32, i32)>,
     removed_columns: Vec<(i32, i32)>,
-    loaded_chunks: Vec<(i32, i32, i32)>,
+    loaded_chunks: Arc<RwLock<Vec<(i32, i32, i32)>>>,
     chunks_to_load: VecDeque<(i32, i32, i32)>,
     chunk_at_player: (i32, i32, i32),
 
@@ -47,7 +48,7 @@ impl ChunkLoading {
             chunk_column_pool: Arc::new(RwLock::new(Vec::new())),
             loaded_columns: Vec::new(),
             removed_columns: Vec::new(),
-            loaded_chunks: Vec::new(),
+            loaded_chunks: Arc::new(RwLock::new(Vec::new())),
             chunks_to_load: VecDeque::new(),
             chunk_at_player: (-100, -100, -100),
             send_chunk_column: tx,
@@ -90,33 +91,34 @@ impl ChunkLoading {
                 + (z - center.1 + distance)) as usize
         };
 
+        let is_position_valid = |c_x: i32, c_z: i32| {
+            abs(x - c_x) <= distance && abs(z - c_z) <= distance
+        };
+
         let mut visited_chunks = Vec::new();
         let mut queue = VecDeque::new();
-        queue.push_back((x, z, distance));
+        queue.push_back((x, z));
         is_visited.set(coords_to_index(x, z), true);
 
         while !queue.is_empty() {
-            let (x, z, dist) = queue.pop_front().unwrap();
-            visited_chunks.push((x, z));
-            if dist <= 0 {
-                continue;
-            }
+            let (c_x, c_z) = queue.pop_front().unwrap();
+            visited_chunks.push((c_x, c_z));
 
-            if !is_visited[coords_to_index(x + 1, z)] {
-                queue.push_back((x + 1, z, dist - 1));
-                is_visited.set(coords_to_index(x + 1, z), true);
+            if is_position_valid(c_x + 1, c_z) && !is_visited[coords_to_index(c_x + 1, c_z)] {
+                queue.push_back((c_x + 1, c_z));
+                is_visited.set(coords_to_index(c_x + 1, c_z), true);
             }
-            if !is_visited[coords_to_index(x - 1, z)] {
-                queue.push_back((x - 1, z, dist - 1));
-                is_visited.set(coords_to_index(x - 1, z), true);
+            if is_position_valid(c_x - 1, c_z) && !is_visited[coords_to_index(c_x - 1, c_z)] {
+                queue.push_back((c_x - 1, c_z));
+                is_visited.set(coords_to_index(c_x - 1, c_z), true);
             }
-            if !is_visited[coords_to_index(x, z + 1)] {
-                queue.push_back((x, z + 1, dist - 1));
-                is_visited.set(coords_to_index(x, z + 1), true);
+            if is_position_valid(c_x, c_z + 1) && !is_visited[coords_to_index(c_x, c_z + 1)] {
+                queue.push_back((c_x, c_z + 1));
+                is_visited.set(coords_to_index(c_x, c_z + 1), true);
             }
-            if !is_visited[coords_to_index(x, z - 1)] {
-                queue.push_back((x, z - 1, dist - 1));
-                is_visited.set(coords_to_index(x, z - 1), true);
+            if is_position_valid(c_x, c_z - 1) && !is_visited[coords_to_index(c_x, c_z - 1)] {
+                queue.push_back((c_x, c_z - 1));
+                is_visited.set(coords_to_index(c_x, c_z - 1), true);
             }
         }
         visited_chunks
@@ -138,49 +140,53 @@ impl ChunkLoading {
                 + (z - center.2 + distance)) as usize
         };
 
+        let is_position_valid = |c_x: i32, c_y: i32, c_z: i32| {
+            abs(x - c_x) <= distance &&
+                abs(y - c_y) <= distance &&
+                abs(z - c_z) <= distance
+        };
+
         let mut visited_chunks = Vec::new();
         let mut queue = VecDeque::new();
-        queue.reserve(100);
-        queue.push_back((x, y, z, distance));
+        // queue.reserve(1000);
+        queue.push_back((x, y, z));
         is_visited.set(coords_to_index(x, y, z), true);
 
         while !queue.is_empty() {
-            let (x, y, z, dist) = queue.pop_front().unwrap();
+            let (x, y, z) = queue.pop_front().unwrap();
 
             if y >= 0 && y < 16 {
                 visited_chunks.push((x, y, z));
                 if let Some(chunk) = chunk_manager.get_chunk(x, y, z) {
                     if chunk.is_fully_opaque() {
+                        // dbg!((x, y, z));
                         continue;
                     }
                 }
             }
-            if dist <= 0 {
-                continue;
-            }
 
-            if !is_visited[coords_to_index(x + 1, y, z)] {
-                queue.push_back((x + 1, y, z, dist - 1));
+            if is_position_valid(x + 1, y, z) && !is_visited[coords_to_index(x + 1, y, z)] {
+                queue.push_back((x + 1, y, z));
                 is_visited.set(coords_to_index(x + 1, y, z), true);
             }
-            if !is_visited[coords_to_index(x - 1, y, z)] {
-                queue.push_back((x - 1, y, z, dist - 1));
+            if is_position_valid(x - 1, y, z) && !is_visited[coords_to_index(x - 1, y, z)] {
+                queue.push_back((x - 1, y, z));
                 is_visited.set(coords_to_index(x - 1, y, z), true);
             }
-            if !is_visited[coords_to_index(x, y, z + 1)] {
-                queue.push_back((x, y, z + 1, dist - 1));
+            if is_position_valid(x, y, z + 1) && !is_visited[coords_to_index(x, y, z + 1)] {
+                queue.push_back((x, y, z + 1));
                 is_visited.set(coords_to_index(x, y, z + 1), true);
             }
-            if !is_visited[coords_to_index(x, y, z - 1)] {
-                queue.push_back((x, y, z - 1, dist - 1));
+            if is_position_valid(x, y, z - 1) && !is_visited[coords_to_index(x, y, z - 1)] {
+                queue.push_back((x, y, z - 1));
                 is_visited.set(coords_to_index(x, y, z - 1), true);
             }
-            if !is_visited[coords_to_index(x, y + 1, z)] {
-                queue.push_back((x, y + 1, z, dist - 1));
+            if is_position_valid(x, y + 1, z) && !is_visited[coords_to_index(x, y + 1, z)] {
+                queue.push_back((x, y + 1, z));
                 is_visited.set(coords_to_index(x, y + 1, z), true);
             }
-            if !is_visited[coords_to_index(x, y - 1, z)] {
-                queue.push_back((x, y - 1, z, dist - 1));
+            if is_position_valid(x, y - 1, z) && !is_visited[coords_to_index(x, y - 1, z)] {
+                queue.push_back((x, y - 1, z));
                 is_visited.set(coords_to_index(x, y - 1, z), true);
             }
         }
@@ -220,9 +226,10 @@ impl<'a> System<'a> for ChunkLoading {
                 println!("new {:?}", self.chunk_at_player);
 
                 // Unload old chunks
-                let old_chunks = self.loaded_chunks.iter().filter(|(x, y, z)| {
-                    abs(x - self.chunk_at_player.0) +
-                        abs(y - self.chunk_at_player.1) +
+                let loaded_chunks = self.loaded_chunks.read().clone();
+                let old_chunks = loaded_chunks.iter().filter(|(x, y, z)| {
+                    abs(x - self.chunk_at_player.0) > RENDER_DISTANCE ||
+                        abs(y - self.chunk_at_player.1) > RENDER_DISTANCE ||
                         abs(z - self.chunk_at_player.2) > RENDER_DISTANCE
                 });
 
@@ -235,7 +242,7 @@ impl<'a> System<'a> for ChunkLoading {
 
                 // Remove old chunk columns
                 let old_columns = self.loaded_columns.iter().filter(|(x, z)| {
-                    abs(x - self.chunk_at_player.0) +
+                    abs(x - self.chunk_at_player.0) > RENDER_DISTANCE + 2 ||
                         abs(z - self.chunk_at_player.2) > RENDER_DISTANCE + 2
                 }).cloned().collect_vec();
 
@@ -245,21 +252,17 @@ impl<'a> System<'a> for ChunkLoading {
                 }
                 println!("Removing old columns\t{:#?}", Instant::now().duration_since(now));
 
-                let noise_fn = self.noise_fn.clone();
-                let send_column = self.send_chunk_column.clone();
-                let send_chunk = self.send_chunks.clone();
-                let column_pool = Arc::clone(&self.chunk_column_pool);
-                let chunk_manager = Arc::clone(&chunk_manager);
-
                 let now = Instant::now();
                 let visited_columns = Self::flood_fill_2d(c_x, c_z, RENDER_DISTANCE + 2);
                 println!("floodfill columns\t{:#?} {} {:?}", Instant::now().duration_since(now), visited_columns.len(), (c_x, c_z));
 
+                let column_pool = Arc::clone(&self.chunk_column_pool);
+
                 let new_columns = visited_columns
                     .iter()
                     .filter(|(x, z)| {
-                        abs(x - previous_chunk_at_player.0)
-                            + abs(z - previous_chunk_at_player.2) > RENDER_DISTANCE + 2
+                        abs(x - previous_chunk_at_player.0) > RENDER_DISTANCE + 2 ||
+                            abs(z - previous_chunk_at_player.2) > RENDER_DISTANCE + 2
                     });
 
                 let mut vec = Vec::new();
@@ -283,14 +286,16 @@ impl<'a> System<'a> for ChunkLoading {
                     }));
                 }
                 println!("terrain gen\t{:#?}", Instant::now().duration_since(now));
-
-                let now = Instant::now();
-                let visited_chunks = Self::flood_fill_3d(&chunk_manager, c_x, c_y, c_z, RENDER_DISTANCE);
-                println!("floodfill chunks\t{:#?} {}", Instant::now().duration_since(now), visited_chunks.len());
-
                 self.loaded_columns = visited_columns;
-                self.loaded_chunks = visited_chunks.clone();
 
+
+                let noise_fn = self.noise_fn.clone();
+                let send_column = self.send_chunk_column.clone();
+                let send_chunk = self.send_chunks.clone();
+                let chunk_manager = Arc::clone(&chunk_manager);
+                let loaded_chunks = Arc::clone(&self.loaded_chunks);
+
+                let loaded_chunks =
                 self.pool.spawn(move || {
                     // Terarin gen
                     rayon::scope(move |s| {
@@ -331,11 +336,22 @@ impl<'a> System<'a> for ChunkLoading {
                     // Chunk face culling & AO
                     rayon::scope(move |s| {
 
+                        let now = Instant::now();
+                        let visited_chunks = Self::flood_fill_3d(&chunk_manager, c_x, c_y, c_z, RENDER_DISTANCE);
+                        // for chunk in &visited_chunks {
+                        //     dbg!(chunk);
+                        // }
+                        // dbg!((c_x, c_y, c_z));
+                        // exit(0);
+                        println!("floodfill chunks\t{:#?} {}", Instant::now().duration_since(now), visited_chunks.len());
+                        *loaded_chunks.write() = visited_chunks.clone();
+
                         let new_chunks = visited_chunks.iter().filter(|c| {
-                            abs(c.0 - previous_chunk_at_player.0)
-                                + abs(c.1 - previous_chunk_at_player.1)
-                                + abs(c.2 - previous_chunk_at_player.2) > RENDER_DISTANCE
+                            abs(c.0 - previous_chunk_at_player.0) > RENDER_DISTANCE ||
+                                abs(c.1 - previous_chunk_at_player.1) > RENDER_DISTANCE ||
+                                abs(c.2 - previous_chunk_at_player.2) > RENDER_DISTANCE
                         });
+
                         // self.chunks_to_load.extend(new_chunks);
 
                         for &(c_x, c_y, c_z) in new_chunks {
@@ -374,9 +390,14 @@ impl<'a> System<'a> for ChunkLoading {
             chunk_manager.add_chunk_column((x, z), column);
         }
 
-        if let Ok((c_x, c_y, c_z)) = self.receive_chunks.try_recv() {
+        // Make this a constant
+        let chunk_uploads_per_frame = 2;
+        for (c_x, c_y, c_z) in self.receive_chunks.try_iter().take(chunk_uploads_per_frame) {
             if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
+                // println!("uploading {:?}", (c_x, c_y, c_z));
+                let now = Instant::now();
                 chunk.upload_to_gpu(&texture_pack);
+                // println!("uploading took {:?}", Instant::now().duration_since(now));
                 *chunk.is_rendered.write() = true;
             }
         }
