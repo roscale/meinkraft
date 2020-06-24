@@ -247,8 +247,6 @@ impl Chunk {
         *self.blocks.write() = [BlockID::Air; CHUNK_VOLUME as usize];
         *self.number_of_opaque_blocks.write() = 0;
         *self.number_of_transparent_blocks.write() = 0;
-        *self.active_faces.write() = BitVec::from_elem(6 * CHUNK_VOLUME as usize, false);
-        *self.ao_vertices.write() = [[[0; 4]; 6]; CHUNK_VOLUME as usize];
         *self.vertices_drawn.write() = 0;
     }
 

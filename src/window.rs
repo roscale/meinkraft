@@ -19,7 +19,7 @@ pub fn create_window(width: u32, height: u32, title: &str) -> (Glfw, Window, Rec
         .expect("Failed to create GLFW window.");
     gl::load_with(|s| window.get_proc_address(s) as *const _);
 
-    // Uncomment the following line to disable VSync
+    // Comment the following line to enable VSync
     unsafe { glfwSwapInterval(0) };
 
     // Make the window's context current
