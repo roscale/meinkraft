@@ -22,29 +22,36 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 #[derive(Default)]
 pub struct ChunkManager {
-    pub loaded_chunk_columns: DashMap<(i32, i32), Arc<ChunkColumn>>,
+    pub loaded_chunk_columns: RwLock<HashMap<(i32, i32), Arc<ChunkColumn>>>,
     pub block_changelist: RwLock<HashSet<(i32, i32, i32)>>,
 }
 
 impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
-            loaded_chunk_columns: DashMap::new(),
+            loaded_chunk_columns: RwLock::new(HashMap::new()),
             block_changelist: RwLock::new(HashSet::new()),
         }
     }
 
     pub fn get_column(&self, x: i32, z: i32) -> Option<Arc<ChunkColumn>> {
-        self.loaded_chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
+        self.loaded_chunk_columns.read().get(&(x, z)).map(|col| Arc::clone(col))
+        // let a = OwningRef::new(self.loaded_chunk_columns.read()).map(|cols| {
+        //     chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
+        // })
+        // parking_lot::RwLockReadGuard::map(self.loaded_chunk_columns.read(), |chunk_columns| {
+        //     chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
+        // })
+        // self.loaded_chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
     }
 
     pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<OwningRef<Arc<ChunkColumn>, Chunk>> {
         if y < 0 || y >= 16 {
             return None;
         }
-        self.loaded_chunk_columns.get(&(x, z))
+        self.loaded_chunk_columns.read().get(&(x, z))
             .map(|column| {
-                OwningRef::new(Arc::clone(column.value())).map(|column| column.get_chunk(y))
+                OwningRef::new(Arc::clone(column)).map(|column| column.get_chunk(y))
             })
     }
 
@@ -72,14 +79,15 @@ impl ChunkManager {
     // }
 
     pub fn add_chunk_column(&self, xz: (i32, i32), chunk_column: Arc<ChunkColumn>) {
-        if !self.loaded_chunk_columns.contains_key(&xz) {
-            self.loaded_chunk_columns.insert(xz, chunk_column);
+        let mut guard = self.loaded_chunk_columns.write();
+        if !guard.contains_key(&xz) {
+            guard.insert(xz, chunk_column);
             // self.fresh_chunk.insert(xz);
         }
     }
 
     pub fn remove_chunk_column(&self, xz: &(i32, i32)) -> Option<Arc<ChunkColumn>> {
-        self.loaded_chunk_columns.remove_take(&xz).map(|col| Arc::clone(col.value()))
+        self.loaded_chunk_columns.write().remove(&xz)
     }
 
     // pub fn generate_terrain(&mut self) {
@@ -222,8 +230,8 @@ impl ChunkManager {
     }
 
     pub fn update_all_blocks(&self, c_x: i32, c_y: i32, c_z: i32) {
-        let mut this_column = match self.loaded_chunk_columns.get(&(c_x, c_z)) {
-            Some(column) => column,
+        let mut this_column = match self.loaded_chunk_columns.read().get(&(c_x, c_z)) {
+            Some(column) => Arc::clone(column),
             None => return
         };
 
@@ -390,10 +398,9 @@ impl ChunkManager {
 
         let mut now = Instant::now();
 
-        for entry in self.loaded_chunk_columns.iter() {
+        for ((x, z), chunk_column) in self.loaded_chunk_columns.read().iter() {
             let mut now = Instant::now();
 
-            let ((x, z), chunk_column) = entry.pair();
             for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
                 // Skip rendering the chunk if there is nothing to draw
 

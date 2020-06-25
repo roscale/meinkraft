@@ -171,7 +171,7 @@ fn main() {
         .with(PlayerState::new())
         .with(Interpolator::new(
             1.0 / PHYSICS_TICKRATE,
-            PlayerPhysicsState::new_at_position(vec3(8.0f32, 180.0, 8.0)),
+            PlayerPhysicsState::new_at_position(vec3(8.0f32, 195.0, 8.0)),
         ))
         .with(Inventory::new())
         .with(MainHand::new())
