@@ -10,8 +10,6 @@ use crate::player::PlayerState;
 use crate::timer::Timer;
 use crate::types::{ParticleSystems, Shaders, TexturePack};
 use std::sync::Arc;
-use parking_lot::RwLock;
-use std::time::Instant;
 
 pub struct RenderChunks;
 
@@ -19,26 +17,17 @@ impl<'a> System<'a> for RenderChunks {
     type SystemData = (
         Read<'a, TexturePack>,
         ReadStorage<'a, PlayerState>,
-        Write<'a, Arc<ChunkManager>>,
+        Read<'a, Arc<ChunkManager>>,
         Write<'a, Shaders>,
     );
-
-
-
 
     fn run(&mut self, data: Self::SystemData) {
         let (
             texture_pack,
             player_state,
-            mut chunk_manager,
+            chunk_manager,
             mut shaders,
         ) = data;
-
-
-        // let now = Instant::now();
-
-
-
         chunk_manager.rebuild_dirty_chunks(&texture_pack);
 
         let mut voxel_shader = shaders.get_mut("voxel_shader").unwrap();
@@ -55,10 +44,6 @@ impl<'a> System<'a> for RenderChunks {
             voxel_shader.set_uniform_matrix4fv("projection", player_state.projection_matrix.as_ptr());
             chunk_manager.render_loaded_chunks(&mut voxel_shader);
         }
-
-        // println!("Rendering {:?}", Instant::now().duration_since(now));
-
-        // chunk_manager.generate_progressive_terrain();
     }
 }
 

@@ -9,7 +9,6 @@ use crate::physics::Interpolator;
 use crate::player::{PlayerPhysicsState, PlayerState};
 use crate::timer::Timer;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 pub struct UpdatePlayerPhysics;
 

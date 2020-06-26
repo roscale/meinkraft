@@ -34,7 +34,6 @@ use crate::types::Shaders;
 use crate::window::create_window;
 use crate::ecs::systems::chunk_loading::ChunkLoading;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use std::thread;
 use std::time::Duration;
 

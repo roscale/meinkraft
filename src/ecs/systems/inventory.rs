@@ -8,7 +8,6 @@ use crate::inventory::Inventory;
 use crate::inventory::item::ItemStack;
 use crate::player::PlayerState;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 pub struct InventoryHandleInput;
 

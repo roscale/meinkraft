@@ -1,6 +1,4 @@
 use nalgebra_glm::{Vec3, vec3};
-use std::sync::Arc;
-use std::ops::Deref;
 
 pub trait Forward {
     fn forward(&self) -> Self;

@@ -3,22 +3,16 @@ use std::collections::{HashMap, HashSet};
 use nalgebra::Matrix4;
 use nalgebra_glm::{Mat4, vec3};
 
-use crate::constants::RENDER_DISTANCE;
 use crate::ambient_occlusion::compute_ao_of_block;
 use crate::chunk::{BlockID, Chunk, ChunkColumn, BlockIterator};
 use crate::shader_compilation::ShaderProgram;
 use crate::types::TexturePack;
-use std::sync::{Arc, RwLockWriteGuard};
-use parking_lot::{RwLock, RawRwLock, MappedRwLockWriteGuard, RwLockReadGuard, MappedRwLockReadGuard};
-use std::borrow::BorrowMut;
-use dashmap::{DashMap, ElementGuard};
-use std::mem::forget;
-use std::time::Instant;
+use std::sync::Arc;
+use parking_lot::RwLock;
 use owning_ref::OwningRef;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
-// pub const CUBE_SIZE: u32 = 180;
 
 #[derive(Default)]
 pub struct ChunkManager {
@@ -34,17 +28,12 @@ impl ChunkManager {
         }
     }
 
+    #[inline]
     pub fn get_column(&self, x: i32, z: i32) -> Option<Arc<ChunkColumn>> {
         self.loaded_chunk_columns.read().get(&(x, z)).map(|col| Arc::clone(col))
-        // let a = OwningRef::new(self.loaded_chunk_columns.read()).map(|cols| {
-        //     chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
-        // })
-        // parking_lot::RwLockReadGuard::map(self.loaded_chunk_columns.read(), |chunk_columns| {
-        //     chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
-        // })
-        // self.loaded_chunk_columns.get(&(x, z)).map(|col| Arc::clone(col.value()))
     }
 
+    #[inline]
     pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<OwningRef<Arc<ChunkColumn>, Chunk>> {
         if y < 0 || y >= 16 {
             return None;
@@ -55,29 +44,7 @@ impl ChunkManager {
             })
     }
 
-    // pub fn get_chunk(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
-    //     if y < 0 || y > 15 {
-    //         return None;
-    //     }
-    //
-    //     self.loaded_chunk_columns.get(&(x, z)).map(|column| {
-    //         &column.value().chunks[y as usize]
-    //     })
-    //
-    //     // self.loaded_chunk_columns.get(&(x, z)).map(|column| {
-    //     // })
-    // }
-    //
-    // pub fn get_chunk_mut(&self, x: i32, y: i32, z: i32) -> Option<&Chunk> {
-    //     if y < 0 || y > 15 {
-    //         return None;
-    //     }
-    //
-    //     self.loaded_chunk_columns.get(&(x, z)).map(|column| {
-    //         &Arc::clone(column.value()).chunks[y as usize]
-    //     })
-    // }
-
+    #[inline]
     pub fn add_chunk_column(&self, xz: (i32, i32), chunk_column: Arc<ChunkColumn>) {
         let mut guard = self.loaded_chunk_columns.write();
         if !guard.contains_key(&xz) {
@@ -86,6 +53,7 @@ impl ChunkManager {
         }
     }
 
+    #[inline]
     pub fn remove_chunk_column(&self, xz: &(i32, i32)) -> Option<Arc<ChunkColumn>> {
         self.loaded_chunk_columns.write().remove(&xz)
     }
@@ -230,7 +198,7 @@ impl ChunkManager {
     }
 
     pub fn update_all_blocks(&self, c_x: i32, c_y: i32, c_z: i32) {
-        let mut this_column = match self.loaded_chunk_columns.read().get(&(c_x, c_z)) {
+        let this_column = match self.loaded_chunk_columns.read().get(&(c_x, c_z)) {
             Some(column) => Arc::clone(column),
             None => return
         };
@@ -250,7 +218,7 @@ impl ChunkManager {
         }
 
         #[inline]
-        fn block_at(column: &ChunkColumn, neighbourhood: &[Option<Arc<ChunkColumn>>; 9], c_x: i32, c_y: i32, c_z: i32, w_x: i32, w_y: i32, w_z: i32) -> BlockID {
+        fn block_at(column: &ChunkColumn, neighbourhood: &[Option<Arc<ChunkColumn>>; 9], c_x: i32, c_z: i32, w_x: i32, w_y: i32, w_z: i32) -> BlockID {
             let to_index = |x: i32, z: i32| -> usize {
                 3 * (x - c_x + 1) as usize + (z - c_z + 1) as usize
             };
@@ -273,13 +241,13 @@ impl ChunkManager {
         };
 
         #[inline]
-        fn active_faces(column: &ChunkColumn, neighbourhood: &[Option<Arc<ChunkColumn>>; 9], c_x: i32, c_y: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
-            let right = block_at(&column, &neighbourhood, c_x, c_y, c_z, x + 1, y, z).is_transparent();
-            let left = block_at(&column, &neighbourhood, c_x, c_y, c_z, x - 1, y, z).is_transparent();
-            let top = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y + 1, z).is_transparent();
-            let bottom = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y - 1, z).is_transparent();
-            let front = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y, z + 1).is_transparent();
-            let back = block_at(&column, &neighbourhood, c_x, c_y, c_z, x, y, z - 1).is_transparent();
+        fn active_faces(column: &ChunkColumn, neighbourhood: &[Option<Arc<ChunkColumn>>; 9], c_x: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
+            let right = block_at(&column, &neighbourhood, c_x, c_z, x + 1, y, z).is_transparent();
+            let left = block_at(&column, &neighbourhood, c_x, c_z, x - 1, y, z).is_transparent();
+            let top = block_at(&column, &neighbourhood, c_x, c_z, x, y + 1, z).is_transparent();
+            let bottom = block_at(&column, &neighbourhood, c_x, c_z, x, y - 1, z).is_transparent();
+            let front = block_at(&column, &neighbourhood, c_x, c_z, x, y, z + 1).is_transparent();
+            let back = block_at(&column, &neighbourhood, c_x, c_z, x, y, z - 1).is_transparent();
             [right, left, top, bottom, front, back]
         };
 
@@ -290,7 +258,7 @@ impl ChunkManager {
             let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
             // let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(w_x + 1, w_y, w_z);
 
-            let af = active_faces(&this_column, &neighbourhood, c_x, c_y, c_z, w_x, w_y, w_z);
+            let af = active_faces(&this_column, &neighbourhood, c_x, c_z, w_x, w_y, w_z);
             let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
             // let mut chunk = this_column.chunks[c_y as usize];
 
@@ -307,7 +275,7 @@ impl ChunkManager {
             // Ambient Occlusion
 
             let block_ao = compute_ao_of_block(&|rx: i32, ry: i32, rz: i32| {
-                !block_at(&this_column, &neighbourhood, c_x, c_y, c_z, w_x + rx, w_y + ry, w_z + rz).is_transparent_no_leaves()
+                !block_at(&this_column, &neighbourhood, c_x, c_z, w_x + rx, w_y + ry, w_z + rz).is_transparent_no_leaves()
             });
 
             this_column.get_chunk(c_y).ao_vertices.write()[array_index] = block_ao;
@@ -395,32 +363,14 @@ impl ChunkManager {
     }
 
     pub fn render_loaded_chunks(&self, program: &mut ShaderProgram) {
-
-        let mut now = Instant::now();
-
         for ((x, z), chunk_column) in self.loaded_chunk_columns.read().iter() {
-            let mut now = Instant::now();
-
             for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
                 // Skip rendering the chunk if there is nothing to draw
-
-
-
-
-                let is_rendered = *chunk.is_rendered.read();
-
-                if !is_rendered {
-                    continue;
-                }
                 let vertices_drawn = *chunk.vertices_drawn.read();
-                if vertices_drawn == 0 {
+                if !*chunk.is_rendered.read() || vertices_drawn == 0 {
                     continue;
-
                 }
                 let vao = *chunk.vao.read();
-
-                let mut now = Instant::now();
-
                 let model_matrix = {
                     let translate_matrix = Matrix4::new_translation(&vec3(
                         *x as f32, *y as f32, *z as f32).scale(16.0));

@@ -18,7 +18,6 @@ use crate::raycast;
 use crate::timer::Timer;
 use crate::types::{ParticleSystems, TexturePack};
 use crate::util::Forward;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 pub struct HandlePlayerInput;
