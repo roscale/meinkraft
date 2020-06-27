@@ -8,7 +8,7 @@ use num_traits::abs;
 use parking_lot::RwLock;
 use specs::{Join, Read, ReadStorage, System};
 
-use crate::chunk::{BlockID, ChunkColumn};
+use crate::chunk::{BlockID, ChunkColumn, Chunk};
 use crate::chunk_manager::ChunkManager;
 use crate::constants::{RENDER_DISTANCE, WORLD_GENERATION_THREAD_POOL_SIZE, CHUNK_UPLOADS_PER_FRAME, WORLD_SEED};
 use crate::physics::Interpolator;
@@ -222,9 +222,13 @@ impl ChunkLoading {
         ring.push((x, y, z));
         is_visited.set(coords_to_index(x, y, z), true);
 
+        let criteria = |chunk: &Chunk| {
+            !*chunk.is_generated.read() || !*chunk.is_uploaded_to_gpu.read()
+        };
+
         // Load the first tile
         if let Some(chunk) = chunk_manager.get_chunk(x, y, z) {
-            if !*chunk.is_updated.read() {
+            if criteria(chunk.as_ref()) {
                 return ring;
             }
         }
@@ -254,8 +258,11 @@ impl ChunkLoading {
 
             let mut unloaded_chunks = Vec::new();
             for &(x, y, z) in &ring {
-                if  y >= 0 && y < 16 && !*chunk_manager.get_chunk(x, y, z).unwrap().is_updated.read() {
-                    unloaded_chunks.push((x, y, z));
+                if y >= 0 && y < 16 {
+                    let chunk = chunk_manager.get_chunk(x, y, z).unwrap();
+                    if criteria(chunk.as_ref()) {
+                        unloaded_chunks.push((x, y, z));
+                    }
                 }
             }
             if !unloaded_chunks.is_empty() {
@@ -361,7 +368,7 @@ impl<'a> System<'a> for ChunkLoading {
 
                     // Terrain generation
                     let chunk_manager1 = Arc::clone(&cm);
-                    rayon::scope(move |s| {
+                    rayon::scope(move |_s| {
                         let chunk_manager = Arc::clone(&chunk_manager1);
                         rayon::scope(move |s| {
                             for (x, z, column) in unloaded_columns {
@@ -426,7 +433,7 @@ impl<'a> System<'a> for ChunkLoading {
 
                         let chunk_manager = Arc::clone(&chunk_manager1);
 
-                        rayon::scope(|s| {
+                        rayon::scope(|_s| {
                             let unfoliated_columns = Self::flood_fill_unfoliated_columns(&chunk_manager, c_x, c_z, RENDER_DISTANCE);
                             for (cx, cz) in unfoliated_columns {
                                 let column = chunk_manager.get_column(cx, cz).unwrap();
@@ -489,11 +496,12 @@ impl<'a> System<'a> for ChunkLoading {
                             s.spawn(move |_s| {
                                 if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
                                     if chunk.is_empty() {
-                                        *chunk.is_updated.write() = true;
+                                        *chunk.is_generated.write() = true;
+                                        *chunk.is_uploaded_to_gpu.write() = true;
                                         return;
                                     }
                                     chunk_manager.update_all_blocks(c_x, c_y, c_z);
-                                    *chunk.is_updated.write() = true;
+                                    *chunk.is_generated.write() = true;
 
                                     if let Err(err) = send_chunk.send((c_x, c_y, c_z)) {
                                         error!("{}", err);

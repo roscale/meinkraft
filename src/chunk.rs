@@ -234,7 +234,7 @@ impl ChunkColumn {
 }
 
 pub struct Chunk {
-    pub is_updated: RwLock<bool>,
+    pub is_generated: RwLock<bool>,
     pub is_uploaded_to_gpu: RwLock<bool>,
     pub blocks: RwLock<[BlockID; CHUNK_VOLUME as usize]>,
     pub number_of_opaque_blocks: RwLock<u32>,
@@ -260,7 +260,7 @@ impl Chunk {
 
     pub fn reset(&self) {
         self.unload_from_gpu();
-        *self.is_updated.write() = false;
+        *self.is_generated.write() = false;
         *self.blocks.write() = [BlockID::Air; CHUNK_VOLUME as usize];
         *self.number_of_opaque_blocks.write() = 0;
         *self.number_of_transparent_blocks.write() = 0;
@@ -281,7 +281,7 @@ impl Chunk {
         };
 
         Self {
-            is_updated: RwLock::new(false),
+            is_generated: RwLock::new(false),
             is_uploaded_to_gpu: RwLock::new(false),
             blocks: RwLock::new([block; CHUNK_VOLUME as usize]),
             number_of_opaque_blocks: RwLock::new(opaque),
@@ -305,7 +305,7 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Self {
-            is_updated: RwLock::new(false),
+            is_generated: RwLock::new(false),
             is_uploaded_to_gpu: RwLock::new(false),
             blocks: RwLock::new({
                 let mut blocks = [BlockID::Air; CHUNK_VOLUME as usize];
