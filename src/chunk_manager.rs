@@ -17,7 +17,7 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 #[derive(Default)]
 pub struct ChunkManager {
     pub loaded_chunk_columns: RwLock<HashMap<(i32, i32), Arc<ChunkColumn>>>,
-    pub block_changelist: RwLock<HashSet<(i32, i32, i32)>>,
+    block_changelist: RwLock<HashSet<(BlockID, i32, i32, i32)>>,
 }
 
 impl ChunkManager {
@@ -187,7 +187,7 @@ impl ChunkManager {
     /// Should be used when an entity (player, mob etc.) interacts with the world.
     pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) {
         if self.set_block(block, x, y, z) {
-            self.block_changelist.write().insert((x, y, z));
+            self.block_changelist.write().insert((block, x, y, z));
         }
     }
 
@@ -198,10 +198,17 @@ impl ChunkManager {
     }
 
     pub fn update_all_blocks(&self, c_x: i32, c_y: i32, c_z: i32) {
-        let this_column = match self.loaded_chunk_columns.read().get(&(c_x, c_z)) {
-            Some(column) => Arc::clone(column),
-            None => return
+        let this_column = match self.get_column(c_x, c_z) {
+            Some(column) => column,
+            None => {
+                error!("Cannot update chunk {:?} because its column doesn't exist", (c_x, c_y, c_z));
+                return;
+            }
         };
+        let this_chunk = this_column.get_chunk(c_y);
+        if this_chunk.is_empty() {
+            return;
+        }
 
         let mut neighbourhood = [
             None, None, None,
@@ -241,7 +248,7 @@ impl ChunkManager {
         };
 
         #[inline]
-        fn active_faces(column: &ChunkColumn, neighbourhood: &[Option<Arc<ChunkColumn>>; 9], c_x: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
+        fn compute_active_faces(column: &ChunkColumn, neighbourhood: &[Option<Arc<ChunkColumn>>; 9], c_x: i32, c_z: i32, x: i32, y: i32, z: i32) -> [bool; 6] {
             let right = block_at(&column, &neighbourhood, c_x, c_z, x + 1, y, z).is_transparent();
             let left = block_at(&column, &neighbourhood, c_x, c_z, x - 1, y, z).is_transparent();
             let top = block_at(&column, &neighbourhood, c_x, c_z, x, y + 1, z).is_transparent();
@@ -251,26 +258,24 @@ impl ChunkManager {
             [right, left, top, bottom, front, back]
         };
 
+        let mut active_faces = this_chunk.active_faces.write();
+        let mut ao_vertices = this_chunk.ao_vertices.write();
+
         for (b_x, b_y, b_z) in BlockIterator::new() {
-            if this_column.get_chunk(c_y).get_block(b_x, b_y, b_z) == BlockID::Air {
+            if this_chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
                 continue;
             }
             let (w_x, w_y, w_z) = ChunkManager::get_global_coords((c_x, c_y, c_z, b_x, b_y, b_z));
-            // let (c_x, c_y, c_z, b_x, b_y, b_z) = ChunkManager::get_chunk_coords(w_x + 1, w_y, w_z);
 
-            let af = active_faces(&this_column, &neighbourhood, c_x, c_z, w_x, w_y, w_z);
+            let af = compute_active_faces(&this_column, &neighbourhood, c_x, c_z, w_x, w_y, w_z);
             let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
-            // let mut chunk = this_column.chunks[c_y as usize];
 
-            // drop(this_column);
-            // let mut this_column = self.loaded_chunk_columns.get(&(c_x, c_z)).unwrap().write();
-            this_column.get_chunk(c_y).active_faces.write().set(6 * array_index, af[0]);
-            this_column.get_chunk(c_y).active_faces.write().set(6 * array_index + 1, af[1]);
-            this_column.get_chunk(c_y).active_faces.write().set(6 * array_index + 2, af[2]);
-            this_column.get_chunk(c_y).active_faces.write().set(6 * array_index + 3, af[3]);
-            this_column.get_chunk(c_y).active_faces.write().set(6 * array_index + 4, af[4]);
-            this_column.get_chunk(c_y).active_faces.write().set(6 * array_index + 5, af[5]);
-
+            active_faces.set(6 * array_index, af[0]);
+            active_faces.set(6 * array_index + 1, af[1]);
+            active_faces.set(6 * array_index + 2, af[2]);
+            active_faces.set(6 * array_index + 3, af[3]);
+            active_faces.set(6 * array_index + 4, af[4]);
+            active_faces.set(6 * array_index + 5, af[5]);
 
             // Ambient Occlusion
 
@@ -278,12 +283,7 @@ impl ChunkManager {
                 !block_at(&this_column, &neighbourhood, c_x, c_z, w_x + rx, w_y + ry, w_z + rz).is_transparent_no_leaves()
             });
 
-            this_column.get_chunk(c_y).ao_vertices.write()[array_index] = block_ao;
-            // dbg!(af);
-            // this_column.chunks[c_y as usize].active_faces[]
-
-            // let nearby_block = chunk.get_block(b_x, b_y, b_z);
-            // println!("{:?}", nearby_block);
+            ao_vertices[array_index] = block_ao;
         }
     }
 
@@ -297,12 +297,15 @@ impl ChunkManager {
         let array_index = (b_y * CHUNK_SIZE * CHUNK_SIZE + b_z * CHUNK_SIZE + b_x) as usize;
 
         let active_faces_of_block = self.get_active_faces_of_block(w_x, w_y, w_z);
-        chunk.active_faces.write().set(6 * array_index, active_faces_of_block[0]);
-        chunk.active_faces.write().set(6 * array_index + 1, active_faces_of_block[1]);
-        chunk.active_faces.write().set(6 * array_index + 2, active_faces_of_block[2]);
-        chunk.active_faces.write().set(6 * array_index + 3, active_faces_of_block[3]);
-        chunk.active_faces.write().set(6 * array_index + 4, active_faces_of_block[4]);
-        chunk.active_faces.write().set(6 * array_index + 5, active_faces_of_block[5]);
+        {
+            let mut active_faces = chunk.active_faces.write();
+            active_faces.set(6 * array_index, active_faces_of_block[0]);
+            active_faces.set(6 * array_index + 1, active_faces_of_block[1]);
+            active_faces.set(6 * array_index + 2, active_faces_of_block[2]);
+            active_faces.set(6 * array_index + 3, active_faces_of_block[3]);
+            active_faces.set(6 * array_index + 4, active_faces_of_block[4]);
+            active_faces.set(6 * array_index + 5, active_faces_of_block[5]);
+        }
 
         // Ambient Occlusion
 
@@ -323,20 +326,13 @@ impl ChunkManager {
                         let (
                             c_x, c_y, c_z,
                             b_x, b_y, b_z,
-                        ) = ChunkManager::get_chunk_coords(change.0 + x, change.1 + y, change.2 + z);
+                        ) = ChunkManager::get_chunk_coords(change.1 + x, change.2 + y, change.3 + z);
                         changelist_per_chunk.entry((c_x, c_y, c_z)).or_default().push((b_x, b_y, b_z));
                     }
                 }
             }
         }
         self.block_changelist.write().clear();
-
-        // for &(c_x, c_y, c_z) in &self.fresh_chunk.clone() {
-        //     for (b_x, b_y, b_z) in BlockIterator::new() {
-        //         self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-        //     }
-        // }
-        // self.fresh_chunk.clear();
 
         for (&(c_x, c_y, c_z), dirty_blocks) in &changelist_per_chunk {
             match self.get_chunk(c_x, c_y, c_z) {
@@ -366,11 +362,10 @@ impl ChunkManager {
         for ((x, z), chunk_column) in self.loaded_chunk_columns.read().iter() {
             for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
                 // Skip rendering the chunk if there is nothing to draw
-                let vertices_drawn = *chunk.vertices_drawn.read();
-                if !*chunk.is_rendered.read() || vertices_drawn == 0 {
+                if !*chunk.is_uploaded_to_gpu.read() || chunk.is_empty() {
                     continue;
                 }
-                let vao = *chunk.vao.read();
+
                 let model_matrix = {
                     let translate_matrix = Matrix4::new_translation(&vec3(
                         *x as f32, *y as f32, *z as f32).scale(16.0));
@@ -383,16 +378,10 @@ impl ChunkManager {
                     translate_matrix * rotate_matrix * scale_matrix
                 };
 
-                gl_call!(gl::BindVertexArray(vao));
+                gl_call!(gl::BindVertexArray(*chunk.vao.read()));
                 program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
-                gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, vertices_drawn as i32));
-
-                // println!("Drawing {:?}", Instant::now().duration_since(now));
+                gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, *chunk.vertices_drawn.read() as i32));
             }
-
-            // println!("Column {:?}", Instant::now().duration_since(now));
         }
-        // println!("Rendering {:?}", Instant::now().duration_since(now));
-
     }
 }

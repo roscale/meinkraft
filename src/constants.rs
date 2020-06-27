@@ -1,4 +1,5 @@
 use std::time::Duration;
+use rand::{thread_rng, RngCore};
 
 // Window
 pub const OPENGL_MAJOR_VERSION: u32 = 4;
@@ -16,8 +17,16 @@ pub const GUI_SCALING: f32 = 2.0;
 pub const CROSSHAIR_SIZE: f32 = 40.0;
 pub const BLOCK_OUTLINE_WIDTH: f32 = 3.0;
 
+lazy_static! {
+    pub static ref WORLD_SEED: u32 = {
+        let seed = thread_rng().next_u32();
+        println!("Seed: {}", seed);
+        seed
+    };
+}
+
 // Rendering
-pub const RENDER_DISTANCE: i32 = 16;
+pub const RENDER_DISTANCE: i32 = 18;
 pub const CHUNK_UPLOADS_PER_FRAME: usize = 2;
 lazy_static! {
     pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = {

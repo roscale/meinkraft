@@ -110,12 +110,16 @@ fn create_vao_vbo() -> (u32, u32) {
 }
 
 pub struct ChunkColumn {
+    pub heighest_blocks: RwLock<Box<[u8; 16 * 16]>>,
+    pub has_foliage: RwLock<bool>,
     pub chunks: Box<[Chunk; 16]>,
 }
 
 impl ChunkColumn {
     pub fn new() -> Self {
         Self {
+            heighest_blocks: RwLock::new(Box::new([0; 16 * 16])),
+            has_foliage: RwLock::new(false),
             chunks: Box::new([
                 Chunk::empty(),
                 Chunk::empty(),
@@ -139,6 +143,8 @@ impl ChunkColumn {
 
     pub fn random() -> Self {
         Self {
+            heighest_blocks: RwLock::new(Box::new([0; 16 * 16])),
+            has_foliage: RwLock::new(false),
             chunks: Box::new([
                 Chunk::random(),
                 Chunk::random(),
@@ -162,6 +168,8 @@ impl ChunkColumn {
 
     pub fn full_of_block(block: BlockID) -> Self {
         Self {
+            heighest_blocks: RwLock::new(Box::new([0; 16 * 16])),
+            has_foliage: RwLock::new(false),
             chunks: Box::new([
                 Chunk::full_of_block(block),
                 Chunk::full_of_block(block),
@@ -185,6 +193,8 @@ impl ChunkColumn {
 
     pub fn alternating() -> Self {
         Self {
+            heighest_blocks: RwLock::new(Box::new([0; 16 * 16])),
+            has_foliage: RwLock::new(false),
             chunks: Box::new([
                 Chunk::full_of_block(BlockID::Dirt),
                 Chunk::full_of_block(BlockID::Cobblestone),
@@ -214,11 +224,18 @@ impl ChunkColumn {
     #[inline]
     pub fn set_block(&self, block: BlockID, x: u32, y: u32, z: u32) {
         self.chunks[(y / 16) as usize].set_block(block, x, y % 16, z);
+        let mut heighest_blocks = self.heighest_blocks.write();
+        let y = y as u8;
+        let i = (16 * z + x) as usize;
+        if y > heighest_blocks[i] {
+            heighest_blocks[i] = y;
+        }
     }
 }
 
 pub struct Chunk {
-    pub is_rendered: RwLock<bool>,
+    pub is_updated: RwLock<bool>,
+    pub is_uploaded_to_gpu: RwLock<bool>,
     pub blocks: RwLock<[BlockID; CHUNK_VOLUME as usize]>,
     pub number_of_opaque_blocks: RwLock<u32>,
     pub number_of_transparent_blocks: RwLock<u32>,
@@ -243,7 +260,7 @@ impl Chunk {
 
     pub fn reset(&self) {
         self.unload_from_gpu();
-        *self.is_rendered.write() = false;
+        *self.is_updated.write() = false;
         *self.blocks.write() = [BlockID::Air; CHUNK_VOLUME as usize];
         *self.number_of_opaque_blocks.write() = 0;
         *self.number_of_transparent_blocks.write() = 0;
@@ -264,7 +281,8 @@ impl Chunk {
         };
 
         Self {
-            is_rendered: RwLock::new(false),
+            is_updated: RwLock::new(false),
+            is_uploaded_to_gpu: RwLock::new(false),
             blocks: RwLock::new([block; CHUNK_VOLUME as usize]),
             number_of_opaque_blocks: RwLock::new(opaque),
             number_of_transparent_blocks: RwLock::new(transparent),
@@ -287,7 +305,8 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         Self {
-            is_rendered: RwLock::new(false),
+            is_updated: RwLock::new(false),
+            is_uploaded_to_gpu: RwLock::new(false),
             blocks: RwLock::new({
                 let mut blocks = [BlockID::Air; CHUNK_VOLUME as usize];
                 for i in 0..blocks.len() {
@@ -357,6 +376,7 @@ impl Chunk {
     }
 
     pub fn unload_from_gpu(&self) {
+        *self.is_uploaded_to_gpu.write() = false;
         gl_call!(gl::NamedBufferData(*self.vbo.read(),
                 0,
                 null(),
