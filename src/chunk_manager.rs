@@ -10,6 +10,7 @@ use crate::types::TexturePack;
 use std::sync::Arc;
 use parking_lot::RwLock;
 use owning_ref::OwningRef;
+use std::time::{Duration, Instant};
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -17,7 +18,7 @@ pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 #[derive(Default)]
 pub struct ChunkManager {
     pub loaded_chunk_columns: RwLock<HashMap<(i32, i32), Arc<ChunkColumn>>>,
-    block_changelist: RwLock<HashSet<(BlockID, i32, i32, i32)>>,
+    pub(crate) block_changelist: RwLock<HashSet<(i32, BlockID, i32, i32, i32)>>,
 }
 
 impl ChunkManager {
@@ -169,7 +170,7 @@ impl ChunkManager {
     ///
     /// This function should be used for terrain generation because it does not
     /// modify the changelist.
-    pub fn set_block(&self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
+    fn _set_block(&self, priority: i32, block: BlockID, x: i32, y: i32, z: i32) -> bool {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
 
@@ -177,19 +178,43 @@ impl ChunkManager {
             None => false,
             Some(chunk) => {
                 chunk.set_block(block, block_x, block_y, block_z);
+                if *chunk.is_uploaded_to_gpu.read() {
+                    self.block_changelist.write().insert((priority, block, x, y, z));
+                }
                 true
             }
         }
     }
 
+    pub fn set_block(&self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
+        self._set_block(0, block, x, y, z)
+    }
+
+    pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
+        self._set_block(1, block, x, y, z)
+    }
+
     /// Like `set_block` but it modifies the changelist.
     ///
     /// Should be used when an entity (player, mob etc.) interacts with the world.
-    pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) {
-        if self.set_block(block, x, y, z) {
-            self.block_changelist.write().insert((block, x, y, z));
-        }
-    }
+    // pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) {
+    //     let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
+    //         = ChunkManager::get_chunk_coords(x, y, z);
+    //
+    //     match self.get_chunk(chunk_x, chunk_y, chunk_z) {
+    //         None => false,
+    //         Some(chunk) => {
+    //             if *chunk.is_uploaded_to_gpu.read() {
+    //                 chunk.set_block(block, block_x, block_y, block_z);
+    //                 self.block_changelist.write().insert((block, x, y, z));
+    //             } else {
+    //                 chunk.set_block(block, block_x, block_y, block_z);
+    //             }
+    //             true
+    //         }
+    //     }
+    //
+    // }
 
     pub fn is_solid_block_at(&self, x: i32, y: i32, z: i32) -> bool {
         self.get_block(x, y, z)
@@ -197,7 +222,9 @@ impl ChunkManager {
             .is_some()
     }
 
-    pub fn update_all_blocks(&self, c_x: i32, c_y: i32, c_z: i32) {
+    pub fn update_blocks<I>(&self, c_x: i32, c_y: i32, c_z: i32, blocks: I)
+        where I: Iterator<Item = (u32, u32, u32)> {
+
         let this_column = match self.get_column(c_x, c_z) {
             Some(column) => column,
             None => {
@@ -261,7 +288,7 @@ impl ChunkManager {
         let mut active_faces = this_chunk.active_faces.write();
         let mut ao_vertices = this_chunk.ao_vertices.write();
 
-        for (b_x, b_y, b_z) in BlockIterator::new() {
+        for (b_x, b_y, b_z) in blocks {
             if this_chunk.get_block(b_x, b_y, b_z) == BlockID::Air {
                 continue;
             }
@@ -315,36 +342,6 @@ impl ChunkManager {
                 .is_some()
         });
         self.get_chunk(c_x, c_y, c_z).unwrap().ao_vertices.write()[array_index] = block_ao;
-    }
-
-    pub fn rebuild_dirty_chunks(&self, uv_map: &TexturePack) {
-        let mut changelist_per_chunk: HashMap<(i32, i32, i32), Vec<(u32, u32, u32)>> = HashMap::new();
-        for &change in &*self.block_changelist.read() {
-            for x in -1..=1 {
-                for y in -1..=1 {
-                    for z in -1..=1 {
-                        let (
-                            c_x, c_y, c_z,
-                            b_x, b_y, b_z,
-                        ) = ChunkManager::get_chunk_coords(change.1 + x, change.2 + y, change.3 + z);
-                        changelist_per_chunk.entry((c_x, c_y, c_z)).or_default().push((b_x, b_y, b_z));
-                    }
-                }
-            }
-        }
-        self.block_changelist.write().clear();
-
-        for (&(c_x, c_y, c_z), dirty_blocks) in &changelist_per_chunk {
-            match self.get_chunk(c_x, c_y, c_z) {
-                None => continue,
-                Some(chunk) => {
-                    for &(b_x, b_y, b_z) in dirty_blocks {
-                        self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-                    }
-                    chunk.upload_to_gpu(&uv_map);
-                }
-            }
-        }
     }
 
     // An active face is a block face next to a transparent block that needs to be rendered

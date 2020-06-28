@@ -26,7 +26,7 @@ lazy_static! {
 }
 
 // Rendering
-pub const RENDER_DISTANCE: i32 = 18;
+pub const RENDER_DISTANCE: i32 = 16;
 pub const CHUNK_UPLOADS_PER_FRAME: usize = 2;
 lazy_static! {
     pub static ref WORLD_GENERATION_THREAD_POOL_SIZE: usize = {
@@ -60,7 +60,7 @@ pub const WALKING_SPEED: f32 = 4.317;
 pub const SPRINTING_SPEED: f32 = 6.0;
 pub const SNEAKING_SPEED: f32 = 2.0;
 pub const FLYING_SPEED: f32 = 10.92;
-pub const FLYING_SPRINTING_SPEED: f32 = 17.0;
+pub const FLYING_SPRINTING_SPEED: f32 = 50.0;
 pub const ON_GROUND_FRICTION: f32 = 12.0;
 pub const IN_AIR_FRICTION: f32 = 2.0;
 

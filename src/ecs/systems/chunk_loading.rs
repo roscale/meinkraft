@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap, BinaryHeap};
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -8,24 +8,62 @@ use num_traits::abs;
 use parking_lot::RwLock;
 use specs::{Join, Read, ReadStorage, System};
 
-use crate::chunk::{BlockID, ChunkColumn, Chunk};
+use crate::chunk::{BlockID, ChunkColumn, Chunk, BlockIterator};
 use crate::chunk_manager::ChunkManager;
 use crate::constants::{RENDER_DISTANCE, WORLD_GENERATION_THREAD_POOL_SIZE, CHUNK_UPLOADS_PER_FRAME, WORLD_SEED};
 use crate::physics::Interpolator;
 use crate::player::PlayerPhysicsState;
 use crate::types::TexturePack;
 use rand::random;
+use std::time::{Duration, Instant};
+use std::thread;
+use std::cmp::Ordering;
+use std::ops::Deref;
+
+#[derive(Eq)]
+struct PrioritizedItem<T> {
+    pub item: T,
+    pub priority: i32,
+}
+
+impl<T: Eq> Ord for PrioritizedItem<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+impl<T: Eq> PartialOrd for PrioritizedItem<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> PartialEq for PrioritizedItem<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+impl<T> Deref for PrioritizedItem<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.item
+    }
+}
 
 pub struct ChunkLoading {
     noise_fn: SuperSimplex,
     chunk_column_pool: Arc<RwLock<Vec<Arc<ChunkColumn>>>>,
     chunk_at_player: (i32, i32, i32),
 
-    send_chunks: Sender<(i32, i32, i32)>,
-    receive_chunks: Receiver<(i32, i32, i32)>,
+    send_chunks: Sender<PrioritizedItem<(i32, i32, i32)>>,
+    receive_chunks: Receiver<PrioritizedItem<(i32, i32, i32)>>,
+    chunk_priority_queue: BinaryHeap<PrioritizedItem<(i32, i32, i32)>>,
 
     expand_ring: Arc<RwLock<bool>>,
     world_generation_thread_pool: rayon::ThreadPool,
+    player_interaction_thread_pool: rayon::ThreadPool,
 }
 
 impl ChunkLoading {
@@ -52,10 +90,14 @@ impl ChunkLoading {
             chunk_at_player: (-100, -100, -100),
             send_chunks: tx,
             receive_chunks: rx,
+            chunk_priority_queue: BinaryHeap::new(),
             expand_ring: Arc::new(RwLock::new(true)),
             world_generation_thread_pool: rayon::ThreadPoolBuilder::new()
                 .stack_size(4 * 1024 * 1024)
                 .num_threads(*WORLD_GENERATION_THREAD_POOL_SIZE)
+                .build().unwrap(),
+            player_interaction_thread_pool: rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
                 .build().unwrap(),
         }
     }
@@ -177,8 +219,7 @@ impl ChunkLoading {
                 let has_foliage = match chunk_manager.get_column(x, z) {
                     Some(column) => *column.has_foliage.read(),
                     None => {
-                        error!("Cannot foliate column {:?} because it doesn't exist", (x, z));
-                        false
+                        true // Hack to stop spreading
                     }
                 };
                 if !has_foliage {
@@ -327,12 +368,30 @@ impl<'a> System<'a> for ChunkLoading {
                 }
             }
 
-            for (c_x, c_y, c_z) in self.receive_chunks.try_iter().take(CHUNK_UPLOADS_PER_FRAME) {
-                if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
-                    chunk.upload_to_gpu(&texture_pack);
-                    *chunk.is_uploaded_to_gpu.write() = true;
+            for priority_chunk in self.receive_chunks.try_iter() {
+                self.chunk_priority_queue.push(priority_chunk);
+            }
+
+            for _ in 0..CHUNK_UPLOADS_PER_FRAME {
+                if let Some(prioritized_chunk) = self.chunk_priority_queue.pop() {
+                    let (c_x, c_y, c_z) = *prioritized_chunk;
+                    if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
+                        chunk.upload_to_gpu(&texture_pack);
+                        *chunk.is_uploaded_to_gpu.write() = true;
+                    }
                 }
             }
+
+            // for priority_chunk in self.chunk_priority_queue.drain_sorted().take(CHUNK_UPLOADS_PER_FRAME) {
+            //
+            // }
+
+            // for (c_x, c_y, c_z) in self.receive_chunks.try_iter().take(CHUNK_UPLOADS_PER_FRAME) {
+            //     if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
+            //         chunk.upload_to_gpu(&texture_pack);
+            //         *chunk.is_uploaded_to_gpu.write() = true;
+            //     }
+            // }
 
             if *self.expand_ring.read() {
                 *self.expand_ring.write() = false;
@@ -432,7 +491,6 @@ impl<'a> System<'a> for ChunkLoading {
                         });
 
                         let chunk_manager = Arc::clone(&chunk_manager1);
-
                         rayon::scope(|_s| {
                             let unfoliated_columns = Self::flood_fill_unfoliated_columns(&chunk_manager, c_x, c_z, RENDER_DISTANCE);
                             for (cx, cz) in unfoliated_columns {
@@ -500,10 +558,13 @@ impl<'a> System<'a> for ChunkLoading {
                                         *chunk.is_uploaded_to_gpu.write() = true;
                                         return;
                                     }
-                                    chunk_manager.update_all_blocks(c_x, c_y, c_z);
+                                    chunk_manager.update_blocks(c_x, c_y, c_z, BlockIterator::new());
                                     *chunk.is_generated.write() = true;
 
-                                    if let Err(err) = send_chunk.send((c_x, c_y, c_z)) {
+                                    if let Err(err) = send_chunk.send(PrioritizedItem {
+                                        item: (c_x, c_y, c_z),
+                                        priority: 0,
+                                    }) {
                                         error!("{}", err);
                                     }
                                 }
@@ -514,5 +575,74 @@ impl<'a> System<'a> for ChunkLoading {
                 });
             }
         }
+
+        let mut changelist_per_chunk: HashMap<(i32, i32, i32), Vec<(i32, u32, u32, u32)>> = HashMap::new();
+        for &change in &*chunk_manager.block_changelist.read() {
+            for x in -1..=1 {
+                for y in -1..=1 {
+                    for z in -1..=1 {
+                        let (
+                            c_x, c_y, c_z,
+                            b_x, b_y, b_z,
+                        ) = ChunkManager::get_chunk_coords(change.2 + x, change.3 + y, change.4 + z);
+                        // change.0 is priority
+                        changelist_per_chunk.entry((c_x, c_y, c_z)).or_default().push((change.0, b_x, b_y, b_z));
+                    }
+                }
+            }
+        }
+
+        // Dirty chunks (changelist)
+        chunk_manager.block_changelist.write().clear();
+        let mut i = 0;
+        let mut duration = Duration::default();
+
+        // dbg!("here?");
+        for ((c_x, c_y, c_z), dirty_blocks) in changelist_per_chunk {
+            let send_chunks = self.send_chunks.clone();
+            let chunk_manager = Arc::clone(&chunk_manager);
+            let highest_priority = dirty_blocks.iter().map(|i| i.0).max().unwrap_or(0);
+            let thread_pool = if highest_priority == 0 {
+                &self.world_generation_thread_pool
+            } else {
+                &self.player_interaction_thread_pool
+            };
+
+            thread_pool.spawn(move || {
+                let bxyz = dirty_blocks.iter().map(|i| (i.1, i.2, i.3));
+
+                match chunk_manager.get_chunk(c_x, c_y, c_z) {
+                    None => return,
+                    Some(chunk) => {
+                        chunk_manager.update_blocks(c_x, c_y, c_z, bxyz);
+
+
+                        // for &(b_x, b_y, b_z) in dirty_blocks {
+                        //     self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
+                        // }
+                        if *chunk.is_uploaded_to_gpu.read() {
+                            send_chunks.send(PrioritizedItem {
+                                item: (c_x, c_y, c_z),
+                                priority: highest_priority,
+                            });
+                        }
+                        // i += 1;
+                        // if *chunk.is_uploaded_to_gpu.read() {
+                        //     chunk.upload_to_gpu(&texture_pack);
+                        //     *chunk.is_uploaded_to_gpu.write() = true;
+                        //
+                        // }
+                    }
+                }
+            });
+        }
+
+        // let now = Instant::now();
+        // duration += Instant::now().duration_since(now);
+        //
+        // if i != 0 {
+        //     dbg!(i);
+        //     dbg!(duration);
+        // }
     }
 }

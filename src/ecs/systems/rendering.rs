@@ -28,7 +28,6 @@ impl<'a> System<'a> for RenderChunks {
             chunk_manager,
             mut shaders,
         ) = data;
-        chunk_manager.rebuild_dirty_chunks(&texture_pack);
 
         let mut voxel_shader = shaders.get_mut("voxel_shader").unwrap();
         voxel_shader.use_program();

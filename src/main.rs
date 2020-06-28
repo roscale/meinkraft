@@ -1,6 +1,7 @@
 #![feature(entry_insert)]
 #![feature(vec_remove_item)]
 #![feature(slice_fill)]
+#![feature(binary_heap_drain_sorted)]
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
