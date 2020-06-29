@@ -107,7 +107,8 @@ fn main() {
             gl_call!(gl::CullFace(gl::BACK));
             gl_call!(gl::Enable(gl::DEPTH_TEST));
             gl_call!(gl::Enable(gl::BLEND));
-            gl_call!(gl::Viewport(0, 0, WINDOW_WIDTH as i32, WINDOW_HEIGHT as i32));
+            let window_size = window.get_size();
+            gl_call!(gl::Viewport(0, 0, window_size.0, window_size.1));
 
             ReadWindowEvents {
                 glfw,

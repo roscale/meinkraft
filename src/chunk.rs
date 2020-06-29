@@ -259,7 +259,7 @@ impl Chunk {
     }
 
     pub fn reset(&self) {
-        self.unload_from_gpu();
+        // self.unload_from_gpu();
         *self.is_generated.write() = false;
         *self.blocks.write() = [BlockID::Air; CHUNK_VOLUME as usize];
         *self.number_of_opaque_blocks.write() = 0;

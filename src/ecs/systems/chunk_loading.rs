@@ -396,34 +396,37 @@ impl<'a> System<'a> for ChunkLoading {
             if *self.expand_ring.read() {
                 *self.expand_ring.write() = false;
 
-                let new_columns = Self::flood_fill_unloaded_columns(&chunk_manager, c_x, c_z, RENDER_DISTANCE + 2);
-
-                let mut unloaded_columns = Vec::new();
-                for (x, z) in new_columns {
-                    unloaded_columns.push((x, z, {
-                        let mut column_pool = self.chunk_column_pool.write();
-                        match column_pool.pop() {
-                            Some(column) => {
-                                for chunk in column.chunks.iter() {
-                                    chunk.reset();
-                                }
-                                column.heighest_blocks.write().fill(0);
-                                *column.has_foliage.write() = false;
-                                column
-                            },
-                            None => {
-                                Arc::new(ChunkColumn::new())
-                            }
-                        }
-                    }));
-                }
-
+                // println!("flood fill {:?}", Instant::now().duration_since(now));
                 let noise_fn = self.noise_fn.clone();
                 let send_chunk = self.send_chunks.clone();
                 let cm = Arc::clone(&chunk_manager);
                 let expand_ring = Arc::clone(&self.expand_ring);
+                let chunk_column_pool = Arc::clone(&self.chunk_column_pool);
 
                 self.world_generation_thread_pool.spawn(move || {
+
+                    let new_columns = Self::flood_fill_unloaded_columns(&cm, c_x, c_z, RENDER_DISTANCE + 2);
+                    // let now = Instant::now();
+
+                    let mut unloaded_columns = Vec::new();
+                    for (x, z) in new_columns {
+                        unloaded_columns.push((x, z, {
+                            let mut column_pool = chunk_column_pool.write();
+                            match column_pool.pop() {
+                                Some(column) => {
+                                    for chunk in column.chunks.iter() {
+                                        chunk.reset();
+                                    }
+                                    column.heighest_blocks.write().fill(0);
+                                    *column.has_foliage.write() = false;
+                                    column
+                                },
+                                None => {
+                                    Arc::new(ChunkColumn::new())
+                                }
+                            }
+                        }));
+                    }
 
                     // Terrain generation
                     let chunk_manager1 = Arc::clone(&cm);
