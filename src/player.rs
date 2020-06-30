@@ -38,7 +38,7 @@ impl PlayerState {
         PlayerState {
             rotation: vec3(0.0, 0.0, 0.0), // In radians
             camera_height: Interpolator::new(1. / 30., PLAYER_EYES_HEIGHT),
-            fov: Interpolator::new(1.0 / 30.0, FOV),
+            fov: Interpolator::new(1.0 / 30.0, *FOV),
             view_matrix: Mat4::identity(),
             projection_matrix: Mat4::identity(),
 

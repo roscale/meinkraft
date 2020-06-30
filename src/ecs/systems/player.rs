@@ -142,15 +142,15 @@ impl<'a> System<'a> for UpdatePlayerState {
             // FOV
             let target_fov = if player_state.is_flying {
                 if player_state.is_sprinting {
-                    FOV + FOV * 0.30
+                    *FOV + *FOV * 0.30
                 } else {
-                    FOV + FOV * 0.15
+                    *FOV + *FOV * 0.15
                 }
             } else {
                 if player_state.is_sprinting {
-                    FOV + FOV * 0.15
+                    *FOV + *FOV * 0.15
                 } else {
-                    FOV
+                    *FOV
                 }
             };
             player_state.fov.interpolate_fov(t, target_fov);

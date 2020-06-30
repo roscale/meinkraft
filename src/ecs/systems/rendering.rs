@@ -3,7 +3,7 @@ use nalgebra_glm::vec3;
 use specs::{Join, Read, ReadStorage, System, Write, WriteStorage};
 
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{BACKGROUND_COLOR, BLOCK_OUTLINE_WIDTH};
+use crate::constants::{BACKGROUND_COLOR, BLOCK_OUTLINE_WIDTH, RENDER_DISTANCE};
 use crate::gui::{create_block_outline_vao, create_crosshair_vao, create_hotbar_selection_vao, create_hotbar_vao, draw_crosshair};
 use crate::inventory::Inventory;
 use crate::player::PlayerState;
@@ -30,8 +30,10 @@ impl<'a> System<'a> for RenderChunks {
         let mut voxel_shader = shaders.get_mut("voxel_shader").unwrap();
         voxel_shader.use_program();
         voxel_shader.set_uniform1i("array_texture", 0);
-
         let (r, g, b, a) = BACKGROUND_COLOR;
+        voxel_shader.set_uniform3f("sky_color", &[r, g, b]);
+        voxel_shader.set_uniform1f("render_distance", RENDER_DISTANCE as f32);
+
         gl_call!(gl::ClearColor(r, g, b, a));
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
         gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));

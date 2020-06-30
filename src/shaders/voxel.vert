@@ -1,8 +1,11 @@
 #version 450 core
 
+const float fog_gradient = 20.0;
+
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform float render_distance;
 
 layout (location = 0) in vec3 pos;
 layout (location = 1) in vec3 texture_coords;
@@ -10,17 +13,22 @@ layout (location = 2) in vec3 normal;
 layout (location = 3) in float ao;
 
 out VertexAttributes {
-    vec3 frag_pos;
     vec3 texture_coords;
     vec3 normal;
     float ao;
+    float visibility;
 } attrs;
 
 void main() {
-    attrs.frag_pos = vec3(model * vec4(pos, 1.0f));
     attrs.texture_coords = texture_coords;
     attrs.normal = normal;
     attrs.ao = ao;
-    gl_Position = projection * view * vec4(attrs.frag_pos, 1.0f);
-    attrs.frag_pos = vec3(view * model * vec4(pos, 1.0f));
+    attrs.visibility = 1.0;
+    vec4 frag_pos = view * model * vec4(pos, 1.0f);
+    gl_Position = projection * frag_pos;
+
+    // Fog
+    float fog_density = 0.066 / render_distance;
+    float distance = length(frag_pos.xyz);
+    attrs.visibility = exp(-pow(distance * fog_density, fog_gradient));
 }

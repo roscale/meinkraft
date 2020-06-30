@@ -10,7 +10,9 @@ pub const WINDOW_HEIGHT: u32 = 600;
 pub const NEAR_PLANE: f32 = 0.1;
 pub const FAR_PLANE: f32 = 1000.0;
 pub const BACKGROUND_COLOR: (f32, f32, f32, f32) = (0.74, 0.84, 1.0, 1.0);
-pub const FOV: f32 = 1.22173; // in radians
+lazy_static! {
+    pub static ref FOV: f32 = 80.0f32.to_radians();
+}
 
 // GUI
 pub const GUI_SCALING: f32 = 2.0;
