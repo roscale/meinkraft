@@ -1,24 +1,22 @@
-use std::collections::{VecDeque, HashMap, BinaryHeap};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::time::{Duration, Instant};
 
 use bit_vec::BitVec;
-use noise::{NoiseFn, Point3, SuperSimplex, Seedable};
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use noise::{NoiseFn, Point2, Point3, Seedable, SuperSimplex};
 use num_traits::abs;
 use parking_lot::RwLock;
 use specs::{Join, Read, ReadStorage, System};
 
-use crate::chunk::{BlockID, ChunkColumn, Chunk, BlockIterator};
+use crate::chunk::{BlockID, BlockIterator, Chunk, ChunkColumn};
 use crate::chunk_manager::ChunkManager;
-use crate::constants::{RENDER_DISTANCE, WORLD_GENERATION_THREAD_POOL_SIZE, CHUNK_UPLOADS_PER_FRAME, WORLD_SEED};
+use crate::constants::{CHUNK_UPLOADS_PER_FRAME, RENDER_DISTANCE, WORLD_GENERATION_THREAD_POOL_SIZE, WORLD_SEED};
 use crate::physics::Interpolator;
 use crate::player::PlayerPhysicsState;
 use crate::types::TexturePack;
-use rand::random;
-use std::time::{Duration, Instant};
-use std::thread;
-use std::cmp::Ordering;
-use std::ops::Deref;
 
 #[derive(Eq)]
 struct PrioritizedItem<T> {
@@ -55,20 +53,69 @@ impl<T> Deref for PrioritizedItem<T> {
 pub struct ChunkLoading {
     noise_fn: SuperSimplex,
     chunk_column_pool: Arc<RwLock<Vec<Arc<ChunkColumn>>>>,
-    chunk_at_player: (i32, i32, i32),
 
-    send_chunks: Sender<PrioritizedItem<(i32, i32, i32)>>,
-    receive_chunks: Receiver<PrioritizedItem<(i32, i32, i32)>>,
-    chunk_priority_queue: BinaryHeap<PrioritizedItem<(i32, i32, i32)>>,
+    request_chunk_columns_tx: Sender<()>,
+    request_chunk_columns_rx: Receiver<()>,
 
-    expand_ring: Arc<RwLock<bool>>,
+    requested_chunk_column_tx: Sender<Arc<ChunkColumn>>,
+    requested_chunk_column_rx: Receiver<Arc<ChunkColumn>>,
+
+    upload_chunks_tx: Sender<PrioritizedItem<(i32, i32, i32)>>,
+    upload_chunks_rx: Receiver<PrioritizedItem<(i32, i32, i32)>>,
+
+    chunk_upload_priority_queue: BinaryHeap<PrioritizedItem<(i32, i32, i32)>>,
+
+    expand_chunks: Arc<RwLock<bool>>,
     world_generation_thread_pool: rayon::ThreadPool,
     player_interaction_thread_pool: rayon::ThreadPool,
 }
 
+fn compute_tree_placement_in_chunk(noise: &SuperSimplex, x: f64, z: f64) -> Vec<(u32, u32)> {
+    let mut maximums = Vec::new();
+
+    #[inline]
+    fn index(i: i32, j: i32) -> usize {
+        (18 * i + j) as usize
+    }
+
+    let mut samples: [f64; 18 * 18] = [0.0; 18 * 18];
+    for i in -1..=16 {
+        for j in -1..=16 {
+            let x = x + j as f64 * 0.075;
+            let z = z + i as f64 * 0.075;
+            samples[index(i + 1, j + 1)] = noise.get(Point2::from([x, z]))
+        }
+    }
+
+    for i in 1..17 {
+        for j in 1..17 {
+            let center = samples[index(i, j)];
+            let is_max = (|| {
+                for ni in i - 1..=i + 1 {
+                    for nj in j - 1..=j + 1 {
+                        if ni == i && nj == j {
+                            continue;
+                        }
+                        if samples[index(ni, nj)] >= center {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            })();
+            if is_max {
+                maximums.push(((j - 1) as u32, (i - 1) as u32));
+            }
+        }
+    }
+    maximums
+}
+
 impl ChunkLoading {
     pub fn new() -> Self {
-        let (tx, rx) = channel();
+        let (request_chunk_column_tx, request_chunk_column_rx) = unbounded();
+        let (requested_chunk_column_tx, requested_chunk_column_rx) = unbounded();
+        let (upload_chunks_tx, upload_chunks_rx) = unbounded();
 
         Self {
             noise_fn: {
@@ -87,11 +134,14 @@ impl ChunkLoading {
                 }
                 vec
             })),
-            chunk_at_player: (-100, -100, -100),
-            send_chunks: tx,
-            receive_chunks: rx,
-            chunk_priority_queue: BinaryHeap::new(),
-            expand_ring: Arc::new(RwLock::new(true)),
+            request_chunk_columns_tx: request_chunk_column_tx,
+            request_chunk_columns_rx: request_chunk_column_rx,
+            requested_chunk_column_tx,
+            requested_chunk_column_rx,
+            upload_chunks_tx,
+            upload_chunks_rx,
+            chunk_upload_priority_queue: BinaryHeap::new(),
+            expand_chunks: Arc::new(RwLock::new(true)),
             world_generation_thread_pool: rayon::ThreadPoolBuilder::new()
                 .stack_size(4 * 1024 * 1024)
                 .num_threads(*WORLD_GENERATION_THREAD_POOL_SIZE)
@@ -338,178 +388,191 @@ impl<'a> System<'a> for ChunkLoading {
                 state.position.y as i32,
                 state.position.z as i32,
             );
-            let c_xyz = (c_x, c_y, c_z);
-            if c_xyz != self.chunk_at_player {
-                self.chunk_at_player = c_xyz;
 
-                let mut columns_to_remove = Vec::new();
-                for (&(x, z), column) in chunk_manager.loaded_chunk_columns.read().iter() {
-                    for (y, chunk) in column.chunks.iter().enumerate() {
-                        let y = y as i32;
-                        if abs(x - c_x) > RENDER_DISTANCE ||
-                            abs(y - c_y) > RENDER_DISTANCE ||
-                            abs(z - c_z) > RENDER_DISTANCE {
+            // Remove distant chunk columns and unload their chunks
+            {
+                if *self.expand_chunks.read() {
+                    let mut columns_to_remove = Vec::new();
+                    for (&(x, z), column) in chunk_manager.loaded_chunk_columns.read().iter() {
+                        for (y, chunk) in column.chunks.iter().enumerate() {
+                            let y = y as i32;
+                            if abs(x - c_x) > RENDER_DISTANCE ||
+                                abs(y - c_y) > RENDER_DISTANCE ||
+                                abs(z - c_z) > RENDER_DISTANCE {
+                                chunk.unload_from_gpu();
+                            }
+                        }
 
-                            chunk.unload_from_gpu();
+                        if abs(x - c_x) > RENDER_DISTANCE + 2 ||
+                            abs(z - c_z) > RENDER_DISTANCE + 2 {
+                            columns_to_remove.push((x, z));
                         }
                     }
-
-                    if  abs(x - c_x) > RENDER_DISTANCE + 2 ||
-                        abs(z - c_z) > RENDER_DISTANCE + 2 {
-
-                        columns_to_remove.push((x, z));
-                    }
-                }
-
-                for xz in columns_to_remove {
-                    if let Some(column) = chunk_manager.remove_chunk_column(&xz) {
-                        self.chunk_column_pool.write().push(column);
+                    for xz in columns_to_remove {
+                        if let Some(column) = chunk_manager.remove_chunk_column(&xz) {
+                            self.chunk_column_pool.write().push(column);
+                        }
                     }
                 }
             }
 
-            for priority_chunk in self.receive_chunks.try_iter() {
-                self.chunk_priority_queue.push(priority_chunk);
-            }
+            // Reset chunk columns and send them to the caller (world generation)
+            {
+                let time_cap = Duration::from_micros(500);
+                let before = Instant::now();
 
-            for _ in 0..CHUNK_UPLOADS_PER_FRAME {
-                if let Some(prioritized_chunk) = self.chunk_priority_queue.pop() {
-                    let (c_x, c_y, c_z) = *prioritized_chunk;
-                    if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
-                        chunk.upload_to_gpu(&texture_pack);
-                        *chunk.is_uploaded_to_gpu.write() = true;
+                for _ in self.request_chunk_columns_rx.try_iter() {
+                    let column = match self.chunk_column_pool.write().pop() {
+                        Some(column) => {
+                            for chunk in column.chunks.iter() {
+                                chunk.reset();
+                            }
+                            column.heighest_blocks.write().fill(0);
+                            *column.has_foliage.write() = false;
+                            column
+                        },
+                        None => {
+                            Arc::new(ChunkColumn::new())
+                        }
+                    };
+                    if let Err(err) = self.requested_chunk_column_tx.send(column) {
+                        eprintln!("{}", err);
+                    }
+                    if Instant::now().duration_since(before) >= time_cap {
+                        break;
                     }
                 }
             }
 
-            // for priority_chunk in self.chunk_priority_queue.drain_sorted().take(CHUNK_UPLOADS_PER_FRAME) {
-            //
-            // }
+            // Chunk uploading
+            {
+                for priority_chunk in self.upload_chunks_rx.try_iter() {
+                    self.chunk_upload_priority_queue.push(priority_chunk);
+                }
+                for _ in 0..CHUNK_UPLOADS_PER_FRAME {
+                    if let Some(prioritized_chunk) = self.chunk_upload_priority_queue.pop() {
+                        let (c_x, c_y, c_z) = *prioritized_chunk;
+                        if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
+                            chunk.upload_to_gpu(&texture_pack);
+                            *chunk.is_uploaded_to_gpu.write() = true;
+                        }
+                    }
+                }
+            }
 
-            // for (c_x, c_y, c_z) in self.receive_chunks.try_iter().take(CHUNK_UPLOADS_PER_FRAME) {
-            //     if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
-            //         chunk.upload_to_gpu(&texture_pack);
-            //         *chunk.is_uploaded_to_gpu.write() = true;
-            //     }
-            // }
+            if *self.expand_chunks.read() {
+                *self.expand_chunks.write() = false;
 
-            if *self.expand_ring.read() {
-                *self.expand_ring.write() = false;
-
-                // println!("flood fill {:?}", Instant::now().duration_since(now));
-                let noise_fn = self.noise_fn.clone();
-                let send_chunk = self.send_chunks.clone();
-                let cm = Arc::clone(&chunk_manager);
-                let expand_ring = Arc::clone(&self.expand_ring);
-                let chunk_column_pool = Arc::clone(&self.chunk_column_pool);
+                let noise_fn = self.noise_fn;
+                let upload_chunks_tx = self.upload_chunks_tx.clone();
+                let chunk_manager = Arc::clone(&chunk_manager);
+                let expand_chunks = Arc::clone(&self.expand_chunks);
+                let request_chunk_columns_tx = self.request_chunk_columns_tx.clone();
+                let requested_chunk_column_rx = self.requested_chunk_column_rx.clone();
 
                 self.world_generation_thread_pool.spawn(move || {
-
-                    let new_columns = Self::flood_fill_unloaded_columns(&cm, c_x, c_z, RENDER_DISTANCE + 2);
-                    // let now = Instant::now();
+                    let new_columns = Self::flood_fill_unloaded_columns(&chunk_manager, c_x, c_z, RENDER_DISTANCE + 2);
+                    for _ in 0..new_columns.len() {
+                        request_chunk_columns_tx.send(()).unwrap();
+                    }
 
                     let mut unloaded_columns = Vec::new();
                     for (x, z) in new_columns {
-                        unloaded_columns.push((x, z, {
-                            let mut column_pool = chunk_column_pool.write();
-                            match column_pool.pop() {
-                                Some(column) => {
-                                    for chunk in column.chunks.iter() {
-                                        chunk.reset();
-                                    }
-                                    column.heighest_blocks.write().fill(0);
-                                    *column.has_foliage.write() = false;
-                                    column
-                                },
-                                None => {
-                                    Arc::new(ChunkColumn::new())
-                                }
+                        let column = match requested_chunk_column_rx.recv() {
+                            Ok(column) => column,
+                            Err(err) => {
+                                eprintln!("{}", err);
+                                return;
                             }
-                        }));
+                        };
+                        unloaded_columns.push((x, z, column));
                     }
 
                     // Terrain generation
-                    let chunk_manager1 = Arc::clone(&cm);
-                    rayon::scope(move |_s| {
-                        let chunk_manager = Arc::clone(&chunk_manager1);
-                        rayon::scope(move |s| {
-                            for (x, z, column) in unloaded_columns {
-                                let column = Arc::clone(&column);
-                                let chunk_manager = Arc::clone(&chunk_manager);
-                                s.spawn(move |_s| {
-                                    // Stone
-                                    for y in (0..16).rev() {
-                                        let y = 16 * y;
-                                        for b_y in 0..16 {
-                                            for b_x in 0..16 {
-                                                for b_z in 0..16 {
-                                                    let x = 16 * x;
-                                                    let z = 16 * z;
+                    {
+                        let chunk_manager = Arc::clone(&chunk_manager);
+                        rayon::scope(move |_s| {
+                            let cm = Arc::clone(&chunk_manager);
+                            rayon::scope(move |s| {
+                                for (x, z, column) in unloaded_columns {
+                                    let column = Arc::clone(&column);
+                                    let chunk_manager = Arc::clone(&cm);
+                                    s.spawn(move |_s| {
+                                        // Stone
+                                        for y in (0..16).rev() {
+                                            let y = 16 * y;
+                                            for b_y in 0..16 {
+                                                for b_x in 0..16 {
+                                                    for b_z in 0..16 {
+                                                        let x = 16 * x;
+                                                        let z = 16 * z;
 
-                                                    let scale = 90.0;
+                                                        let scale = 90.0;
 
-                                                    // Scale the input for the noise function
-                                                    let (xf, yf, zf) = (
-                                                        (x + b_x as i32) as f64 / scale,
-                                                        (y + b_y as i32) as f64 / (scale / 1.0),
-                                                        (z + b_z as i32) as f64 / scale);
+                                                        // Scale the input for the noise function
+                                                        let (xf, yf, zf) = (
+                                                            (x + b_x as i32) as f64 / scale,
+                                                            (y + b_y as i32) as f64 / (scale / 1.0),
+                                                            (z + b_z as i32) as f64 / scale);
 
-                                                    let height = (y + b_y as i32) as f64;
-                                                    let noise = noise_fn.get(Point3::from([xf, yf, zf])) * 64.0
-                                                        + 64.0 + height * 1.7;
+                                                        let height = (y + b_y as i32) as f64;
+                                                        let noise = noise_fn.get(Point3::from([xf, yf, zf])) * 80.0
+                                                            + 64.0 + height * 1.7;
 
-                                                    if noise < 256.0 {
-                                                        column.set_block(BlockID::Stone, b_x, y as u32 + b_y, b_z);
-                                                    }
-                                                };
+                                                        if noise < 256.0 {
+                                                            column.set_block(BlockID::Stone, b_x, y as u32 + b_y, b_z);
+                                                        }
+                                                    };
+                                                }
                                             }
                                         }
-                                    }
 
-                                    // Grass and dirt
-                                    for b_x in 0..16 {
-                                        for b_z in 0..16 {
-                                            let y = column.heighest_blocks.read()[16 * b_z + b_x] as i32;
+                                        // Grass and dirt
+                                        for b_x in 0..16 {
+                                            for b_z in 0..16 {
+                                                let y = column.heighest_blocks.read()[16 * b_z + b_x] as i32;
 
-                                            let chunk_y = (y / 16) as i32;
-                                            let block_y = (y % 16) as usize;
-                                            column.get_chunk(chunk_y).set_block(BlockID::GrassBlock, b_x as u32, block_y as u32, b_z as u32);
-
-                                            for y in (y - 3)..y {
                                                 let chunk_y = (y / 16) as i32;
                                                 let block_y = (y % 16) as usize;
+                                                column.get_chunk(chunk_y).set_block(BlockID::GrassBlock, b_x as u32, block_y as u32, b_z as u32);
 
-                                                let chunk = column.get_chunk(chunk_y);
-                                                if chunk.get_block(b_x as u32, block_y as u32, b_z as u32).is_air() {
-                                                    continue;
+                                                for y in (y - 3)..y {
+                                                    let chunk_y = (y / 16) as i32;
+                                                    let block_y = (y % 16) as usize;
+
+                                                    let chunk = column.get_chunk(chunk_y);
+                                                    if chunk.get_block(b_x as u32, block_y as u32, b_z as u32).is_air() {
+                                                        continue;
+                                                    }
+                                                    chunk.set_block(BlockID::Dirt, b_x as u32, block_y as u32, b_z as u32);
                                                 }
-                                                chunk.set_block(BlockID::Dirt, b_x as u32, block_y as u32, b_z as u32);
                                             }
                                         }
-                                    }
 
-                                    chunk_manager.add_chunk_column((x, z), column);
-                                });
-                            }
-                        });
+                                        chunk_manager.add_chunk_column((x, z), column);
+                                    });
+                                }
+                            });
 
-                        let chunk_manager = Arc::clone(&chunk_manager1);
-                        rayon::scope(|_s| {
-                            let unfoliated_columns = Self::flood_fill_unfoliated_columns(&chunk_manager, c_x, c_z, RENDER_DISTANCE);
-                            for (cx, cz) in unfoliated_columns {
-                                let column = chunk_manager.get_column(cx, cz).unwrap();
+                            let chunk_manager = Arc::clone(&chunk_manager);
+                            rayon::scope(|_s| {
+                                let unfoliated_columns = Self::flood_fill_unfoliated_columns(&chunk_manager, c_x, c_z, RENDER_DISTANCE);
+                                for (cx, cz) in unfoliated_columns {
+                                    let column = chunk_manager.get_column(cx, cz).unwrap();
+                                    *column.has_foliage.write() = true;
 
-                                *column.has_foliage.write() = true;
-
-                                // Trees
-                                for x in 0..16 {
-                                    for z in 0..16 {
+                                    // Trees
+                                    for (x, z) in compute_tree_placement_in_chunk(
+                                            &noise_fn,
+                                            (cx * 16) as f64, (cz * 16) as f64
+                                        ) {
+                                        let (x, z) = (x as usize, z as usize);
                                         let y = column.heighest_blocks.read()[16 * z + x] as i32;
 
-                                        let x = cx * 16 + x as i32;
-                                        let z = cz * 16 + z as i32;
+                                        if true {
+                                            let x = cx * 16 + x as i32;
+                                            let z = cz * 16 + z as i32;
 
-                                        if random::<u32>() % 100 < 1 {
                                             let h = 5;
                                             for i in y + 1..y + 1 + h {
                                                 chunk_manager.set_block(BlockID::OakLog, x, i, z);
@@ -539,20 +602,19 @@ impl<'a> System<'a> for ChunkLoading {
                                             chunk_manager.set_block(BlockID::OakLeaves, x, y + h + 1, z + 1);
                                             chunk_manager.set_block(BlockID::OakLeaves, x, y + h + 1, z - 1);
                                         }
-
                                     }
                                 }
-                            }
+                            });
                         });
-                    });
-                    let chunk_manager = Arc::clone(&cm);
+                    }
 
                     // Chunk face culling & AO
+                    let chunk_manager = Arc::clone(&chunk_manager);
                     rayon::scope(move |s| {
                         let new_chunks = Self::flood_fill_chunks(&chunk_manager, c_x, c_y, c_z, RENDER_DISTANCE);
                         for (c_x, c_y, c_z) in new_chunks {
                             let chunk_manager = Arc::clone(&chunk_manager);
-                            let send_chunk = send_chunk.clone();
+                            let send_chunk = upload_chunks_tx.clone();
 
                             s.spawn(move |_s| {
                                 if let Some(chunk) = chunk_manager.get_chunk(c_x, c_y, c_z) {
@@ -574,11 +636,12 @@ impl<'a> System<'a> for ChunkLoading {
                             });
                         }
                     });
-                    *expand_ring.write() = true;
+                    *expand_chunks.write() = true;
                 });
             }
         }
 
+        // Dirty chunks (changelist)
         let mut changelist_per_chunk: HashMap<(i32, i32, i32), Vec<(i32, u32, u32, u32)>> = HashMap::new();
         for &change in &*chunk_manager.block_changelist.read() {
             for x in -1..=1 {
@@ -594,15 +657,10 @@ impl<'a> System<'a> for ChunkLoading {
                 }
             }
         }
-
-        // Dirty chunks (changelist)
         chunk_manager.block_changelist.write().clear();
-        let mut i = 0;
-        let mut duration = Duration::default();
 
-        // dbg!("here?");
         for ((c_x, c_y, c_z), dirty_blocks) in changelist_per_chunk {
-            let send_chunks = self.send_chunks.clone();
+            let send_chunks = self.upload_chunks_tx.clone();
             let chunk_manager = Arc::clone(&chunk_manager);
             let highest_priority = dirty_blocks.iter().map(|i| i.0).max().unwrap_or(0);
             let thread_pool = if highest_priority == 0 {
@@ -619,33 +677,15 @@ impl<'a> System<'a> for ChunkLoading {
                     Some(chunk) => {
                         chunk_manager.update_blocks(c_x, c_y, c_z, bxyz);
 
-
-                        // for &(b_x, b_y, b_z) in dirty_blocks {
-                        //     self.update_block(c_x, c_y, c_z, b_x, b_y, b_z);
-                        // }
                         if *chunk.is_uploaded_to_gpu.read() {
                             send_chunks.send(PrioritizedItem {
                                 item: (c_x, c_y, c_z),
                                 priority: highest_priority,
-                            });
+                            }).unwrap();
                         }
-                        // i += 1;
-                        // if *chunk.is_uploaded_to_gpu.read() {
-                        //     chunk.upload_to_gpu(&texture_pack);
-                        //     *chunk.is_uploaded_to_gpu.write() = true;
-                        //
-                        // }
                     }
                 }
             });
         }
-
-        // let now = Instant::now();
-        // duration += Instant::now().duration_since(now);
-        //
-        // if i != 0 {
-        //     dbg!(i);
-        //     dbg!(duration);
-        // }
     }
 }

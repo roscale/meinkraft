@@ -15,7 +15,6 @@ pub struct RenderChunks;
 
 impl<'a> System<'a> for RenderChunks {
     type SystemData = (
-        Read<'a, TexturePack>,
         ReadStorage<'a, PlayerState>,
         Read<'a, Arc<ChunkManager>>,
         Write<'a, Shaders>,
@@ -23,7 +22,6 @@ impl<'a> System<'a> for RenderChunks {
 
     fn run(&mut self, data: Self::SystemData) {
         let (
-            texture_pack,
             player_state,
             chunk_manager,
             mut shaders,

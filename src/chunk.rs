@@ -269,8 +269,6 @@ impl Chunk {
 
     /// Creates a chunk where every block is the same
     pub fn full_of_block(block: BlockID) -> Self {
-        let (vao, vbo) = create_vao_vbo();
-
         let (opaque, transparent) = match block {
             BlockID::Air => (0, 0),
             block => if block.is_transparent() {
@@ -289,8 +287,8 @@ impl Chunk {
             active_faces: RwLock::new(BitVec::from_elem(6 * CHUNK_VOLUME as usize, false)),
             ao_vertices: RwLock::new([[[0; 4]; 6]; CHUNK_VOLUME as usize]),
 
-            vao: RwLock::new(vao),
-            vbo: RwLock::new(vbo),
+            vao: RwLock::new(0),
+            vbo: RwLock::new(0),
             vertices_drawn: RwLock::new(0),
         }
     }
@@ -302,8 +300,6 @@ impl Chunk {
 
     /// Creates a chunk where every block is random
     pub fn random() -> Self {
-        let (vao, vbo) = create_vao_vbo();
-
         Self {
             is_generated: RwLock::new(false),
             is_uploaded_to_gpu: RwLock::new(false),
@@ -319,8 +315,8 @@ impl Chunk {
             active_faces: RwLock::new(BitVec::from_elem(6 * CHUNK_VOLUME as usize, false)),
             ao_vertices: RwLock::new([[[0; 4]; 6]; CHUNK_VOLUME as usize]),
 
-            vao: RwLock::new(vao),
-            vbo: RwLock::new(vbo),
+            vao: RwLock::new(0),
+            vbo: RwLock::new(0),
             vertices_drawn: RwLock::new(0),
         }
     }
@@ -377,13 +373,22 @@ impl Chunk {
 
     pub fn unload_from_gpu(&self) {
         *self.is_uploaded_to_gpu.write() = false;
-        gl_call!(gl::NamedBufferData(*self.vbo.read(),
+        let vbo = *self.vbo.read();
+        if vbo != 0 {
+            gl_call!(gl::NamedBufferData(vbo,
                 0,
                 null(),
                 gl::DYNAMIC_DRAW));
+        }
     }
 
     pub fn upload_to_gpu(&self, texture_pack: &TexturePack) {
+        if *self.vao.read() == 0 && *self.vbo.read() == 0 {
+            let (vao, vbo) = create_vao_vbo();
+            *self.vao.write() = vao;
+            *self.vbo.write() = vbo;
+        }
+
         let n_visible_faces = self.active_faces.read().iter().fold(0, |acc, b| acc + b as i32);
         if n_visible_faces == 0 {
             return;

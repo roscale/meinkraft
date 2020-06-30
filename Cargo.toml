@@ -37,3 +37,4 @@ parking_lot = { version = "0.10.2", features = ["deadlock_detection"] }
 dashmap = "4.0.0-rc6"
 owning_ref = "0.4.1"
 num_cpus = "1.13.0"
+crossbeam-channel = "0.4.2"

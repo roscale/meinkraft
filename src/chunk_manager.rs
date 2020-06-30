@@ -4,13 +4,11 @@ use nalgebra::Matrix4;
 use nalgebra_glm::{Mat4, vec3};
 
 use crate::ambient_occlusion::compute_ao_of_block;
-use crate::chunk::{BlockID, Chunk, ChunkColumn, BlockIterator};
+use crate::chunk::{BlockID, Chunk, ChunkColumn};
 use crate::shader_compilation::ShaderProgram;
-use crate::types::TexturePack;
 use std::sync::Arc;
 use parking_lot::RwLock;
 use owning_ref::OwningRef;
-use std::time::{Duration, Instant};
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -50,7 +48,6 @@ impl ChunkManager {
         let mut guard = self.loaded_chunk_columns.write();
         if !guard.contains_key(&xz) {
             guard.insert(xz, chunk_column);
-            // self.fresh_chunk.insert(xz);
         }
     }
 
@@ -58,66 +55,6 @@ impl ChunkManager {
     pub fn remove_chunk_column(&self, xz: &(i32, i32)) -> Option<Arc<ChunkColumn>> {
         self.loaded_chunk_columns.write().remove(&xz)
     }
-
-    // pub fn generate_terrain(&mut self) {
-    //     let render_distance = 5;
-    //
-    //     let ss = SuperSimplex::new();
-    //     for y in -render_distance..=render_distance {
-    //         for z in -render_distance..=render_distance {
-    //             for x in -render_distance..=render_distance {
-    //                 self.add_chunk_column((x, y, z), Chunk::new());
-    //             }
-    //         }
-    //     }
-    //
-    //     for x in -16 * render_distance..=16 * render_distance {
-    //         for z in -16 * render_distance..=16 * render_distance {
-    //             // Scale the input for the noise function
-    //             let (xf, zf) = (x as f64 / 64.0, z as f64 / 64.0);
-    //             let y = ss.get(Point2::from([xf, zf]));
-    //             let y = (16.0 * (y + 1.0)) as i32;
-    //
-    //             // Ground layers
-    //             self.set_block(BlockID::GrassBlock, x, y, z);
-    //             self.set_block(BlockID::Dirt, x, y - 1, z);
-    //             self.set_block(BlockID::Dirt, x, y - 2, z);
-    //             self.set_block(BlockID::Cobblestone, x, y - 3, z);
-    //
-    //             // Trees
-    //             if random::<u32>() % 100 < 1 {
-    //                 let h = 5;
-    //                 for i in y + 1..y + 1 + h {
-    //                     self.set_block(BlockID::OakLog, x, i, z);
-    //                 }
-    //
-    //                 for yy in y + h - 2..=y + h - 1 {
-    //                     for xx in x - 2..=x + 2 {
-    //                         for zz in z - 2..=z + 2 {
-    //                             if xx != x || zz != z {
-    //                                 self.set_block(BlockID::OakLeaves, xx, yy, zz);
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //
-    //                 for xx in x - 1..=x + 1 {
-    //                     for zz in z - 1..=z + 1 {
-    //                         if xx != x || zz != z {
-    //                             self.set_block(BlockID::OakLeaves, xx, y + h, zz);
-    //                         }
-    //                     }
-    //                 }
-    //
-    //                 self.set_block(BlockID::OakLeaves, x, y + h + 1, z);
-    //                 self.set_block(BlockID::OakLeaves, x + 1, y + h + 1, z);
-    //                 self.set_block(BlockID::OakLeaves, x - 1, y + h + 1, z);
-    //                 self.set_block(BlockID::OakLeaves, x, y + h + 1, z + 1);
-    //                 self.set_block(BlockID::OakLeaves, x, y + h + 1, z - 1);
-    //             }
-    //         }
-    //     }
-    // }
 
     pub fn preload_some_chunks(&mut self) {
         for z in 0..2 {
@@ -167,9 +104,6 @@ impl ChunkManager {
     }
 
     /// Replaces the block at (x, y, z) with `block`.
-    ///
-    /// This function should be used for terrain generation because it does not
-    /// modify the changelist.
     fn _set_block(&self, priority: i32, block: BlockID, x: i32, y: i32, z: i32) -> bool {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
             = ChunkManager::get_chunk_coords(x, y, z);
@@ -193,28 +127,6 @@ impl ChunkManager {
     pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) -> bool {
         self._set_block(1, block, x, y, z)
     }
-
-    /// Like `set_block` but it modifies the changelist.
-    ///
-    /// Should be used when an entity (player, mob etc.) interacts with the world.
-    // pub fn put_block(&self, block: BlockID, x: i32, y: i32, z: i32) {
-    //     let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z)
-    //         = ChunkManager::get_chunk_coords(x, y, z);
-    //
-    //     match self.get_chunk(chunk_x, chunk_y, chunk_z) {
-    //         None => false,
-    //         Some(chunk) => {
-    //             if *chunk.is_uploaded_to_gpu.read() {
-    //                 chunk.set_block(block, block_x, block_y, block_z);
-    //                 self.block_changelist.write().insert((block, x, y, z));
-    //             } else {
-    //                 chunk.set_block(block, block_x, block_y, block_z);
-    //             }
-    //             true
-    //         }
-    //     }
-    //
-    // }
 
     pub fn is_solid_block_at(&self, x: i32, y: i32, z: i32) -> bool {
         self.get_block(x, y, z)
@@ -359,7 +271,8 @@ impl ChunkManager {
         for ((x, z), chunk_column) in self.loaded_chunk_columns.read().iter() {
             for (ref y, chunk) in chunk_column.chunks.iter().enumerate() {
                 // Skip rendering the chunk if there is nothing to draw
-                if !*chunk.is_uploaded_to_gpu.read() || chunk.is_empty() {
+                let vao = *chunk.vao.read();
+                if !*chunk.is_uploaded_to_gpu.read() || chunk.is_empty() || vao == 0 {
                     continue;
                 }
 
@@ -375,7 +288,12 @@ impl ChunkManager {
                     translate_matrix * rotate_matrix * scale_matrix
                 };
 
-                gl_call!(gl::BindVertexArray(*chunk.vao.read()));
+                gl_call!(gl::BindVertexArray(vao));
+                if vao == 0 {
+                    dbg!(vao);
+                    dbg!(*chunk.is_uploaded_to_gpu.read());
+                    dbg!(chunk.is_empty());
+                }
                 program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
                 gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, *chunk.vertices_drawn.read() as i32));
             }
