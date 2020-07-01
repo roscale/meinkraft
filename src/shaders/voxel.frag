@@ -3,6 +3,7 @@
 out vec4 Color;
 
 uniform sampler2DArray array_texture;
+uniform bool enable_fog;
 uniform vec3 sky_color;
 
 in VertexAttributes {
@@ -11,8 +12,6 @@ in VertexAttributes {
     float ao;
     float visibility;
 } attrs;
-
-//const
 
 void main() {
     vec4 diffuse_frag = texture(array_texture, attrs.texture_coords);
@@ -27,7 +26,9 @@ void main() {
     } else if (attrs.normal.y != 0.0) {
 //        Color.rgb *= 0.9;
     }
-
     Color.rgb *= (1.0 - attrs.ao * 0.15);
-    Color = mix(vec4(sky_color, 1.0), Color, attrs.visibility);
+
+    if (enable_fog) {
+        Color = mix(vec4(sky_color, 1.0), Color, attrs.visibility);
+    }
 }

@@ -549,6 +549,16 @@ impl<'a> System<'a> for ChunkLoading {
                                             }
                                         }
 
+                                        // Bedrock
+                                        let chunk = column.get_chunk(0);
+                                        for b_x in 0..16 {
+                                            for b_z in 0..16 {
+                                                chunk.set_block(BlockID::Bedrock, b_x, 0, b_z);
+                                                chunk.set_block(BlockID::Bedrock, b_x, 1, b_z);
+                                                chunk.set_block(BlockID::Bedrock, b_x, 2, b_z);
+                                            }
+                                        }
+
                                         chunk_manager.add_chunk_column((x, z), column);
                                     });
                                 }
