@@ -28,7 +28,7 @@ lazy_static! {
 }
 
 // Rendering
-pub const RENDER_DISTANCE: i32 = 8;
+pub const RENDER_DISTANCE: i32 = 10;
 pub const ENABLE_FOG: bool = true;
 pub const CHUNK_UPLOADS_PER_FRAME: usize = 2;
 lazy_static! {
